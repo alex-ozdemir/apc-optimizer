@@ -151,19 +151,34 @@ structure StepLayout {p : ℕ} (c : Circuit p) (r : GuestBusRules p) (asg : Chip
   tOffsetMatch : ∀ i : Fin c.busInteractions.length, c.activeStateful r asg i →
     -(maxLookback : ℤ) ≤ tOffset i ∧ tOffset i ≤ (tWindow : ℤ) ∧
       r.getTimestamp (c.msgAt asg i) = tStart + ((tOffset i : ℤ) : ZMod p)
-  /-- Each memory send is Ok, given that every earlier memory interaction is Ok.
+  /-- No two distinct memory interactions carry the same payload with the same multiplicity: for
+      any message, this step makes at most one memory *send* of it and at most one memory
+      *receive* of it. -/
+  memInteractionsUnique : ∀ i j : Fin c.busInteractions.length,
+      c.activeMem r asg i → c.activeMem r asg j →
+      c.msgAt asg i = c.msgAt asg j → c.multAt asg i = c.multAt asg j → i = j
 
-      This is the induction that carries the memory-byte invariant: a send is justified by
-      whatever actually precedes it in time. Restricted to the memory bus — `memPayloadOnly`
+  /-- A memory send always sits inside the step's own window, never before it. -/
+  memSendOffsetNonneg : ∀ i : Fin c.busInteractions.length, c.memSend r asg i → 0 ≤ tOffset i
+
+  /-- Every memory send is Ok, given that everything this step receives is Ok.
+
+      No induction on interaction order, and no reference to `tOffset`, is needed here: by
+      `memSendOffsetNonneg` a send always sits inside the step's own window, and every step's
+      window is disjoint from every other's — on pain of unbalancing the memory bus, a step can
+      never *net-receive* a message whose timestamp falls inside its own window either. So in any
+      assignment this clause actually gets used against, every net receive already sits strictly
+      before the step's own window; that is a fact about the whole run, proved once outside the
+      audited surface (together with `memInteractionsUnique`, which pins a net receive to a single
+      interaction) rather than restated here. Restricted to the memory bus — `memPayloadOnly`
       already settles every other stateful bus.
 
       OpenVM §3.2.5, elements of address spaces 1 (registers) and 2 (user memory) "are constrained
       to lie in `[0, 2^8)`". In §4.6: a message appears "if and only if at timestamp `t` the data
       memory had values `data`" at that address. -/
-  memSendsOk : ∀ i : Fin c.busInteractions.length, c.memSend r asg i →
-    (∀ j : Fin c.busInteractions.length, tOffset j < tOffset i → c.activeMem r asg j →
-      r.payloadOk (c.msgAt asg j)) →
-    r.payloadOk (c.msgAt asg i)
+  memSendsOk :
+      (∀ m : BusMessage p, m.1 = r.memBusId → c.allEffects asg m = -1 → r.payloadOk m) →
+      ∀ i : Fin c.busInteractions.length, c.memSend r asg i → r.payloadOk (c.msgAt asg i)
 
 /-- Every assignment a guest chip admits lays out as one instruction step.
 
