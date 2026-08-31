@@ -52,3 +52,101 @@ def VmAssignment.ordersRanks {vm : Vm p} (a : VmAssignment p vm) (rm : RankModel
         (vm.guest.get t).activeStateful r asg i → (vm.guest.get t).activeStateful r asg j →
           L.tOffset j < L.tOffset i →
             rm.rank ((vm.guest.get t).msgAt asg j) < rm.rank ((vm.guest.get t).msgAt asg i)
+
+/-- **A step's own net memory receive is a genuine receive.** `StepLayout.memSendsOk`'s hypothesis
+    is a bare fact about `allEffects` — no interaction index, no offset. This recovers a concrete
+    witness: the unique interaction that carries the message, at multiplicity `-1`.
+
+    Pure `StepLayout` bookkeeping — `statefulPolarity` pins every active stateful multiplicity to
+    `0`/`1`/`-1`, and `memInteractionsUnique` rules out two distinct interactions both carrying `m`
+    at the same multiplicity, so a net of `-1` can only come from one `-1` and no `1`. Nothing
+    cross-step yet: `tOffset_neg_of_recv` is where the whole run enters. -/
+theorem exists_recv_of_allEffects_neg_one {c : Circuit p} {r : GuestBusRules p}
+    {asg : ChipAssignment p} {maxWindow maxLookback : ℕ}
+    (L : StepLayout c r asg maxWindow maxLookback)
+    (hpol : c.statefulPolarity r) (hsat : c.satisfiesAlgebraic asg)
+    (hstateful : r.isStateful r.memBusId = true)
+    (hne0 : (-1 : ZMod p) ≠ 0) (hne1 : (-1 : ZMod p) ≠ 1)
+    {m : BusMessage p} (hmemBus : m.1 = r.memBusId) (hnet : c.allEffects asg m = -1) :
+    ∃ k : Fin c.busInteractions.length,
+      c.activeMem r asg k ∧ c.multAt asg k = -1 ∧ c.msgAt asg k = m := by
+  classical
+  have hone_ne_zero : (1 : ZMod p) ≠ 0 := fun h => hne0 (neg_eq_zero.mpr h)
+  by_contra hcon
+  -- Every active interaction on `m` other than a `-1` must be a `1`.
+  have hone : ∀ i : Fin c.busInteractions.length, c.activeMem r asg i → c.msgAt asg i = m →
+      c.multAt asg i = 1 := by
+    intro i hact hmsg
+    rcases hpol asg hsat _ (List.get_mem c.busInteractions i) hact.1.1 with h0 | h1 | hm1
+    · exact absurd h0 hact.1.2
+    · exact h1
+    · exact absurd (⟨i, hact, hm1, hmsg⟩ : ∃ k : Fin c.busInteractions.length,
+        c.activeMem r asg k ∧ c.multAt asg k = -1 ∧ c.msgAt asg k = m) hcon
+  -- Hence at most one interaction is active on `m` at all.
+  have huniq : ∀ i j : Fin c.busInteractions.length, c.activeMem r asg i → c.activeMem r asg j →
+      c.msgAt asg i = m → c.msgAt asg j = m → i = j := fun i j hi hj hmi hmj =>
+    L.memInteractionsUnique i j hi hj (hmi.trans hmj.symm) ((hone i hi hmi).trans (hone j hj hmj).symm)
+  -- `msgAt = m` and a nonzero multiplicity is exactly `activeMem` here.
+  have hmkActive : ∀ i : Fin c.busInteractions.length, c.msgAt asg i = m → c.multAt asg i ≠ 0 →
+      c.activeMem r asg i := by
+    intro i hmi hne
+    have hbeq : (c.busInteractions.get i).busId = r.memBusId := by
+      have hb : (c.msgAt asg i).1 = m.1 := congrArg Prod.fst hmi
+      show (c.busInteractions.get i).busId = r.memBusId
+      rw [show (c.busInteractions.get i).busId = (c.msgAt asg i).1 from rfl, hb, hmemBus]
+    exact ⟨⟨by rw [hbeq]; exact hstateful, hne⟩, hbeq⟩
+  have hf : ∀ i : Fin c.busInteractions.length,
+      (if c.msgAt asg i = m then c.multAt asg i else 0) = 0 ∨
+      (if c.msgAt asg i = m then c.multAt asg i else 0) = 1 := by
+    intro i
+    by_cases hmi : c.msgAt asg i = m
+    · by_cases hz : c.multAt asg i = 0
+      · exact Or.inl (by rw [if_pos hmi, hz])
+      · exact Or.inr (by rw [if_pos hmi]; exact hone i (hmkActive i hmi hz) hmi)
+    · exact Or.inl (if_neg hmi)
+  have hcard : (Finset.univ.filter
+      (fun i : Fin c.busInteractions.length =>
+        (if c.msgAt asg i = m then c.multAt asg i else 0) = 1)).card ≤ 1 := by
+    refine Finset.card_le_one_iff.mpr (fun {i j} hi hj => ?_)
+    simp only [Finset.mem_filter, Finset.mem_univ, true_and] at hi hj
+    have hmi : c.msgAt asg i = m := by by_contra h; rw [if_neg h] at hi; exact hone_ne_zero hi.symm
+    have hmj : c.msgAt asg j = m := by by_contra h; rw [if_neg h] at hj; exact hone_ne_zero hj.symm
+    rw [if_pos hmi] at hi
+    rw [if_pos hmj] at hj
+    have hai := hmkActive i hmi (by rw [hi]; exact hone_ne_zero)
+    have haj := hmkActive j hmj (by rw [hj]; exact hone_ne_zero)
+    exact huniq i j hai haj hmi hmj
+  -- `allEffects` as a per-interaction guarded sum, then reindexed by `Fin`.
+  have hmapIf : c.allEffects asg m = (c.busInteractions.map (fun bi =>
+      if ((bi.eval asg).busId, (bi.eval asg).payload) = m then (bi.eval asg).multiplicity
+      else 0)).sum := by
+    simp only [Circuit.allEffects]
+    induction c.busInteractions with
+    | nil => simp
+    | cons bi t ih =>
+      simp only [List.map_cons, List.filter_cons, List.sum_cons, ← ih]
+      by_cases h : ((bi.eval asg).busId, (bi.eval asg).payload) = m
+      · rw [if_pos h, decide_eq_true h]; simp
+      · rw [if_neg h, decide_eq_false h]; simp
+  have hsum : c.allEffects asg m
+      = ∑ i : Fin c.busInteractions.length, (if c.msgAt asg i = m then c.multAt asg i else 0) := by
+    rw [hmapIf]
+    conv_lhs => rw [← List.ofFn_get c.busInteractions, List.map_ofFn, List.sum_ofFn]
+    exact Finset.sum_congr rfl (fun i _ => by simp [Circuit.msgAt, Circuit.multAt])
+  have hboole : ∑ i : Fin c.busInteractions.length,
+      (if c.msgAt asg i = m then c.multAt asg i else 0)
+      = ((Finset.univ.filter (fun i : Fin c.busInteractions.length =>
+          (if c.msgAt asg i = m then c.multAt asg i else 0) = 1)).card : ZMod p) := by
+    rw [← Finset.sum_boole]
+    refine Finset.sum_congr rfl (fun i _ => ?_)
+    rcases hf i with h0 | h1
+    · simp [h0]
+    · simp [h1]
+  rw [hsum, hboole] at hnet
+  have hn01 : (Finset.univ.filter (fun i : Fin c.busInteractions.length =>
+      (if c.msgAt asg i = m then c.multAt asg i else 0) = 1)).card = 0 ∨
+      (Finset.univ.filter (fun i : Fin c.busInteractions.length =>
+      (if c.msgAt asg i = m then c.multAt asg i else 0) = 1)).card = 1 := by omega
+  rcases hn01 with h0 | h1
+  · rw [h0, Nat.cast_zero] at hnet; exact hne0 hnet.symm
+  · rw [h1, Nat.cast_one] at hnet; exact hne1 hnet.symm
