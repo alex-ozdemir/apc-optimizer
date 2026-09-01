@@ -60,8 +60,8 @@ def VmAssignment.ordersRanks {vm : Vm p} (a : VmAssignment p vm) (rm : RankModel
     Like `ordersRanks` this is genuinely multi-chip, and for the same reason — it is exactly the
     fact `memSendsOk`'s docstring defers to the whole run. A message a step net-receives inside its
     own window would have to be sent by someone whose window overlaps it, and distinct steps'
-    windows are disjoint (`VmChain.Chain.windows_disjoint`). See `Host.receivesArePast` and, for
-    OpenVM, `openVmHost_receivesArePast`. -/
+    windows are disjoint (`VmChain.Chain.windows_disjoint`). See `Host.receivesArePast`; OpenVM has
+    no instance of it yet, so every theorem taking one is currently conditional. -/
 def VmAssignment.receivesArePast {vm : Vm p} (a : VmAssignment p vm)
     (r : GuestBusRules p) (maxWindow maxLookback : ℕ) : Prop :=
   ∀ (t : Fin vm.guest.length) (asg : ChipAssignment p), asg ∈ a.guestAssignments t →

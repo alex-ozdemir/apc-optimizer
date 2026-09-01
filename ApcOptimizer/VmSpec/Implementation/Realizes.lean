@@ -160,11 +160,13 @@ def Host.ordersRanks (host : Host p) (rm : RankModel p) (r : GuestBusRules p) : 
     `Host.ordersRanks`, and what makes `StepLayout.memSendsOk`'s flat hypothesis usable: the
     messages it hands a send are then all at a strictly smaller rank.
 
-    For OpenVM this is proved: `openVmHost_receivesArePast`. A message net-received inside the
-    step's own window has to be sent by someone, and every sender places it inside *their* window —
-    a guest step or an input-chip instance by their layouts, the memory-init chip at timestamp `0`,
-    before every window. Distinct arcs of the bridge hold disjoint windows
-    (`VmChain.Chain.windows_disjoint`), so no sender is left. -/
+    NOT YET PROVED FOR OPENVM — no instance of this predicate exists, so every theorem taking it
+    is currently conditional. The intended argument: a message net-received inside the step's own
+    window has to be sent by someone, and every sender places it inside *their* window — a guest
+    step or an input-chip instance by their layouts, the memory-init chip at timestamp `0`, before
+    every window. Distinct arcs of the bridge hold disjoint windows (`bridge_arcs_disjoint`, built
+    on `VmChain.Chain.windows_disjoint`), so no sender is left, and the leftover pile of receives
+    cannot balance (`guestNet_add_ne_zero_of_uniform_many`). -/
 def Host.receivesArePast (host : Host p) (r : GuestBusRules p) : Prop :=
   ∀ (G : Guest p),
     host.legalGuests G →
