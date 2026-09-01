@@ -53,6 +53,24 @@ def VmAssignment.ordersRanks {vm : Vm p} (a : VmAssignment p vm) (rm : RankModel
           L.tOffset j < L.tOffset i →
             rm.rank ((vm.guest.get t).msgAt asg j) < rm.rank ((vm.guest.get t).msgAt asg i)
 
+/-- **A step's net memory receives sit strictly before its own window.** The other half of what
+    `StepLayout.memSendsOk` needs: its hypothesis quantifies over messages the step *nets* a
+    receive on, and the induction can only supply those at a strictly smaller rank.
+
+    Like `ordersRanks` this is genuinely multi-chip, and for the same reason — it is exactly the
+    fact `memSendsOk`'s docstring defers to the whole run. A message a step net-receives inside its
+    own window would have to be sent by someone whose window overlaps it, and distinct steps'
+    windows are disjoint (`VmChain.Chain.windows_disjoint`). See `Host.receivesArePast` and, for
+    OpenVM, `openVmHost_receivesArePast`. -/
+def VmAssignment.receivesArePast {vm : Vm p} (a : VmAssignment p vm)
+    (r : GuestBusRules p) (maxWindow maxLookback : ℕ) : Prop :=
+  ∀ (t : Fin vm.guest.length) (asg : ChipAssignment p), asg ∈ a.guestAssignments t →
+    ∀ L : StepLayout (vm.guest.get t) r asg maxWindow maxLookback,
+      ∀ k : Fin (vm.guest.get t).busInteractions.length,
+        (vm.guest.get t).activeMem r asg k →
+        (vm.guest.get t).allEffects asg ((vm.guest.get t).msgAt asg k) = -1 →
+          L.tOffset k < 0
+
 /-- **A step's own net memory receive is a genuine receive.** `StepLayout.memSendsOk`'s hypothesis
     is a bare fact about `allEffects` — no interaction index, no offset. This recovers a concrete
     witness: the unique interaction that carries the message, at multiplicity `-1`.
@@ -66,7 +84,7 @@ theorem exists_recv_of_allEffects_neg_one {c : Circuit p} {r : GuestBusRules p}
     (L : StepLayout c r asg maxWindow maxLookback)
     (hpol : c.statefulPolarity r) (hsat : c.satisfiesAlgebraic asg)
     (hstateful : r.isStateful r.memBusId = true)
-    (hne0 : (-1 : ZMod p) ≠ 0) (hne1 : (-1 : ZMod p) ≠ 1)
+    (hne0 : (-1 : ZMod p) ≠ 0)
     {m : BusMessage p} (hmemBus : m.1 = r.memBusId) (hnet : c.allEffects asg m = -1) :
     ∃ k : Fin c.busInteractions.length,
       c.activeMem r asg k ∧ c.multAt asg k = -1 ∧ c.msgAt asg k = m := by
@@ -149,4 +167,14 @@ theorem exists_recv_of_allEffects_neg_one {c : Circuit p} {r : GuestBusRules p}
       (if c.msgAt asg i = m then c.multAt asg i else 0) = 1)).card = 1 := by omega
   rcases hn01 with h0 | h1
   · rw [h0, Nat.cast_zero] at hnet; exact hne0 hnet.symm
-  · rw [h1, Nat.cast_one] at hnet; exact hne1 hnet.symm
+  · -- One interaction carries `m`, at multiplicity `1`. The net says `1 = -1`, so that
+    -- interaction is itself the receive we assumed absent — no `-1 ≠ 1` needed.
+    rw [h1, Nat.cast_one] at hnet
+    obtain ⟨k, hk⟩ := Finset.card_eq_one.mp h1
+    have hkmem : k ∈ Finset.univ.filter (fun i : Fin c.busInteractions.length =>
+        (if c.msgAt asg i = m then c.multAt asg i else 0) = 1) := by rw [hk]; exact Finset.mem_singleton_self k
+    simp only [Finset.mem_filter, Finset.mem_univ, true_and] at hkmem
+    have hmk : c.msgAt asg k = m := by
+      by_contra h; rw [if_neg h] at hkmem; exact hone_ne_zero hkmem.symm
+    rw [if_pos hmk] at hkmem
+    exact hcon ⟨k, hmkActive k hmk (by rw [hkmem]; exact hone_ne_zero), hkmem.trans hnet, hmk⟩

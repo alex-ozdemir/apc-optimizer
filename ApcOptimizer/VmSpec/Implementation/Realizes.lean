@@ -156,6 +156,21 @@ def Host.ordersRanks (host : Host p) (rm : RankModel p) (r : GuestBusRules p) : 
     ∀ (a : VmAssignment p ⟨host, G⟩), VmSat ⟨host, G⟩ a →
       a.ordersRanks rm r host.maxWindow host.maxLookback
 
+/-- **A step never net-receives inside its own window**, in any satisfying run — the companion to
+    `Host.ordersRanks`, and what makes `StepLayout.memSendsOk`'s flat hypothesis usable: the
+    messages it hands a send are then all at a strictly smaller rank.
+
+    For OpenVM this is proved: `openVmHost_receivesArePast`. A message net-received inside the
+    step's own window has to be sent by someone, and every sender places it inside *their* window —
+    a guest step or an input-chip instance by their layouts, the memory-init chip at timestamp `0`,
+    before every window. Distinct arcs of the bridge hold disjoint windows
+    (`VmChain.Chain.windows_disjoint`), so no sender is left. -/
+def Host.receivesArePast (host : Host p) (r : GuestBusRules p) : Prop :=
+  ∀ (G : Guest p),
+    host.legalGuests G →
+    ∀ (a : VmAssignment p ⟨host, G⟩), VmSat ⟨host, G⟩ a →
+      a.receivesArePast r host.maxWindow host.maxLookback
+
 /-- **A host realizes its bus semantics.** The single hypothesis the connecting theorems need of
     the fixed VM; see the module docstring. (The lemmas below still take the individual fields, so
     which one carries which step stays visible.)
@@ -185,6 +200,7 @@ structure Host.realizes (host : Host p) (bs : BusSemantics p) (rm : RankModel p)
   statefulAcceptsOfPayloadOk : bs.statefulAcceptsOfPayloadOk r0 hmem
   absorbsStateless : host.absorbsStateless bs
   ordersRanks : host.ordersRanks rm (bs.toGuestRules r0 hmem)
+  receivesArePast : host.receivesArePast (bs.toGuestRules r0 hmem)
 
 /-- The host chips realize `bs`'s acceptance: in any satisfying VM built on this host whose guest
     chips are small enough not to wrap `ZMod p`, every guest instance's assignment is
@@ -285,6 +301,7 @@ theorem maintains_of_stateful_active [Fact p.Prime] {host : Host p} {bs : BusSem
     (hGuests : host.legalGuests G)
     (hsat : VmSat ⟨host, G⟩ a)
     (hOrders : a.ordersRanks rm (bs.toGuestRules r0 hmem) host.maxWindow host.maxLookback)
+    (hPast : a.receivesArePast (bs.toGuestRules r0 hmem) host.maxWindow host.maxLookback)
     {t : Fin G.length} {asg : ChipAssignment p} (hasg : asg ∈ a.guestAssignments t)
     {bi : BusInteraction (Expression p)} (hbi : bi ∈ (G.get t).busInteractions)
     (hst : bs.isStateful bi.busId = true) (hmult : (bi.eval asg).multiplicity ≠ 0) :
@@ -339,11 +356,20 @@ theorem maintains_of_stateful_active [Fact p.Prime] {host : Host p} {bs : BusSem
       · have hacc : (G.get u).satisfiesStateless (bs.toGuestRules r0 hmem) asg'' :=
           satisfiesStateless_of_sinks hunpack hsinks hGuests hsat u asg'' hasg''
         obtain ⟨L⟩ := (hlegal u).stepLayout asg'' (hsat.satisfiesGuest u asg'' hasg'') hacc
-        refine L.memSendsOk i ⟨hsendi, hbmem⟩ (fun j hoff hactMemj => ?_)
-        refine ih _ ?_ u asg'' hasg'' _ (List.get_mem _ _) hactMemj.1.1 hactMemj.1.2 rfl
-        have hlt := hOrders u asg'' hasg'' L i j ⟨hsti, by rw [hsendi.2]; exact one_ne_zero⟩
-          hactMemj.1 hoff
-        rwa [hmsgi, hrank] at hlt
+        refine L.memSendsOk (fun m hmmem hmnet => ?_) i ⟨hsendi, hbmem⟩
+        -- The net receive is one concrete interaction, and it sits before the step's own window,
+        -- so `hOrders` puts it at a strictly smaller rank — where `ih` already settled it.
+        obtain ⟨k, hactk, -, hmsgk⟩ := exists_recv_of_allEffects_neg_one L
+          ((hlegal u).polarity) (hsat.satisfiesGuest u asg'' hasg'') (hbmem ▸ hsti)
+          (neg_ne_zero.mpr one_ne_zero) hmmem hmnet
+        have hoff : L.tOffset k < L.tOffset i :=
+          lt_of_lt_of_le (hPast u asg'' hasg'' L k hactk (by rw [hmsgk]; exact hmnet))
+            (L.memSendOffsetNonneg i ⟨hsendi, hbmem⟩)
+        have hlt := hOrders u asg'' hasg'' L i k ⟨hsti, by rw [hsendi.2]; exact one_ne_zero⟩
+          hactk.1 hoff
+        rw [hmsgi, hrank] at hlt
+        rw [← hmsgk]
+        exact ih _ hlt u asg'' hasg'' _ (List.get_mem _ _) hactk.1.1 hactk.1.2 rfl
       · exact (bs.toGuestRules r0 hmem).memPayloadOnly _ hsti hbmem
     · exact Or.inr hm1
   -- Every *non-exempt* host chip is silent too — same argument as before, just narrowed.
@@ -401,14 +427,16 @@ theorem forcesAccepts_of_hostSound [Fact p.Prime] {host : Host p} {bs : BusSeman
     (hstateful : ∃ idx : Fin host.chips.length,
       host.exemptChip bs idx ∧ host.statefulChipsMaintain bs idx)
     (hbs : bs.statefulAcceptsOfPayloadOk r0 hmem)
-    (hord : host.ordersRanks rm (bs.toGuestRules r0 hmem)) :
+    (hord : host.ordersRanks rm (bs.toGuestRules r0 hmem))
+    (hpast : host.receivesArePast (bs.toGuestRules r0 hmem)) :
     host.forcesAccepts bs := by
   intro G hGuests a hsat t asg hasg
   have hRanks := hord G hGuests a hsat
+  have hPast := hpast G hGuests a hsat
   refine ⟨hsat.satisfiesGuest t asg hasg, fun bi hbi hmult => ?_⟩
   by_cases hst : bs.isStateful bi.busId
   · exact hbs _ hst (maintains_of_stateful_active hunpack hsinks hstateful hGuests
-      hsat hRanks hasg hbi hst hmult)
+      hsat hRanks hPast hasg hbi hst hmult)
   · exact satisfiesStateless_of_sinks hunpack hsinks hGuests hsat t asg hasg bi hbi
       (by simpa using hst) hmult
 
@@ -417,4 +445,4 @@ theorem Host.realizes.forcesAccepts [Fact p.Prime] {host : Host p} {bs : BusSema
     {rm : RankModel p} {r0 : GuestBusRules p} (h : host.realizes bs rm r0) :
     host.forcesAccepts bs :=
   forcesAccepts_of_hostSound h.legalGuest h.sinksAreTables h.statefulChipsMaintain
-    h.statefulAcceptsOfPayloadOk h.ordersRanks
+    h.statefulAcceptsOfPayloadOk h.ordersRanks h.receivesArePast

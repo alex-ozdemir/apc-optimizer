@@ -161,6 +161,16 @@ structure StepLayout {p : ℕ} (c : Circuit p) (r : GuestBusRules p) (asg : Chip
   /-- A memory send always sits inside the step's own window, never before it. -/
   memSendOffsetNonneg : ∀ i : Fin c.busInteractions.length, c.memSend r asg i → 0 ≤ tOffset i
 
+  /-- A memory interaction sits *strictly* inside the window, unlike the bridge send at `tWindow`.
+
+      OpenVM advances one clock per access (`timestamp_pp()`), so an instruction's accesses land at
+      `t_from + i` for `i < t_to - t_from`, and a receive's `prev_timestamp` is below its own
+      access (`AssertLtSubAir`). Without the strictness a step could receive, at its own last tick,
+      the record the *next* step writes at its first — reading the future, which no ordering
+      argument can rule out once the two ticks coincide. -/
+  memOffsetLt : ∀ i : Fin c.busInteractions.length, c.activeMem r asg i →
+    tOffset i < (tWindow : ℤ)
+
   /-- Every memory send is Ok, given that everything this step receives is Ok.
 
       No induction on interaction order, and no reference to `tOffset`, is needed here: by
