@@ -150,6 +150,50 @@ form, then deciding the bridge shape, each interaction's offset (via a per-inter
 and the byte invariant, respectively — each exposing a soundness theorem as its audit surface and
 nothing about the search or arithmetic that produces its `Bool`.
 
+### WIP: the flat `memSendsOk` and `memInteractionsUnique`
+
+`StepLayout`'s memory obligation is being restated as a flat, offset-free hypothesis over net
+memory receives. Soundness is done and unconditional — `openVmHost_receivesArePast` discharges it
+from `VmChain.Chain.windows_disjoint`, and `openVm_vmSoundReplacement` rests only on Lean's three
+standard axioms. `Audit/RealApcLegality.lean` has **not** been rewired onto the new clauses and
+does not currently compile; it is excluded from the default target, so `lake build` stays green.
+
+`Audit/MemSep.lean` settles the new `memInteractionsUnique` for two of the three circuits by
+`decide` (~3s over the whole 23-interaction circuit). The clause compares interactions *at equal
+multiplicity*, so it never has to separate a read from the write that closes it, and what remains
+is decidable on the circuit alone: a multiplicity folding to `0` (never `activeMem`), or address
+columns folding to different constants, or multiplicities doing so. `apc2105000Opt` and
+`apc2105000GatedPinned` clear it with zero unseparated pairs.
+
+**`memInteractionsUnique` is false for `apc2105000UnoptChained`.** Four receive/receive pairs
+survive every static reason — (15,47) at address `52`, and (27,55)/(27,62)/(55,62) at address `44`.
+They are not merely unproven: each `*_prev_timestamp_*` is bounded only below its own access by its
+own lt gadget, their reachable windows overlap, and `writes_aux__prev_data__*_0` occurs in **zero**
+algebraic constraints. So from any satisfying assignment, setting both prev-timestamps to a common
+in-range tick and the free `prev_data` columns to the other receive's data yields another
+satisfying assignment where two distinct interactions carry the identical message at multiplicity
+`-1`. The optimized stage escapes only because powdr deduplicated those accesses — which makes the
+clause sensitive to whether the optimizer happened to clean up, a fragile thing for an audited
+condition to depend on.
+
+Two weakenings, worked out but not implemented:
+
+- **`exists_recv_of_allEffects_neg_one` needs no clause at all.** Its `by_contra` already forces
+  every active interaction on the message to multiplicity `1` via `statefulPolarity`, so the sum is
+  a natural `card` cast into `ZMod p`; uniqueness only caps it at `1`. The `size` field of
+  `legalGuest` plus `maxInteractions + 1 < p` (implied by `OpenVmParams.memBudgetOk`) rules out
+  `card = p - 1` instead.
+- **`not_memSend_of_allEffects_neg_one` needs only that a send's message is never *net*-received**
+  — `∀ i, memSend i → allEffects (msgAt i) = 0 ∨ allEffects (msgAt i) = 1`. This is implied by the
+  current clause and not conversely, and unlike it, it explicitly licenses internal
+  read-after-write inside a fused block (net `0`), which the flat `memSendsOk` was designed to
+  absorb and the current clause forbids by accident.
+
+Neither weakening rescues `apc2105000UnoptChained`, and probably no per-chip condition can: that
+circuit is under-constrained as a standalone chip, its free `prev_data` columns able to impersonate
+any data tuple. Documenting it as failing the strengthened `hasStepLayout` — as `apc2105000Gated`
+already is — is likelier right than weakening the clause until it fits.
+
 ## Known limitations
 
 - **`inputChunkOf`/`outputArrayOf` recover *a* witness, not *the* one that actually produced the
