@@ -418,6 +418,12 @@ structure OpenVmParams (p : ℕ) where
       weaker fact from this one. -/
   windowOk : (maxInstances + maxInputInstances + 1) * (maxWindow + 1) < p
   budgetOk : maxInteractions * maxInstances + 1 < p
+  /-- The same anti-wraparound budget for the *memory* bus, whose host side is wider than
+      `budgetOk`'s single exempt touch: memory finalization receives at most once, and each
+      input-chip instance receives at most once at any given message (its two receives carry
+      different address spaces, so they cannot both land on the same one). Without this a pile of
+      receives exactly `p` deep would balance, and a message nobody sent would look sent. -/
+  memBudgetOk : maxInteractions * maxInstances + maxInputInstances + 1 < p
   /-- An input-chip instance's own clock advance fits the window too. Pinned rather than
       per-witness, since `inputStepWindow` is a constant (`inputHostChip`). -/
   inputWindowOk : inputStepWindow < maxWindow

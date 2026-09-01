@@ -53,6 +53,25 @@ def VmAssignment.ordersRanks {vm : Vm p} (a : VmAssignment p vm) (rm : RankModel
           L.tOffset j < L.tOffset i →
             rm.rank ((vm.guest.get t).msgAt asg j) < rm.rank ((vm.guest.get t).msgAt asg i)
 
+/-- `Circuit.allEffects` as a guarded sum indexed by interaction position. -/
+theorem allEffects_eq_sum_fin (c : Circuit p) (asg : ChipAssignment p) (m : BusMessage p) :
+    c.allEffects asg m
+      = ∑ i : Fin c.busInteractions.length, (if c.msgAt asg i = m then c.multAt asg i else 0) := by
+  have hmapIf : c.allEffects asg m = (c.busInteractions.map (fun bi =>
+      if ((bi.eval asg).busId, (bi.eval asg).payload) = m then (bi.eval asg).multiplicity
+      else 0)).sum := by
+    simp only [Circuit.allEffects]
+    induction c.busInteractions with
+    | nil => simp
+    | cons bi t ih =>
+      simp only [List.map_cons, List.filter_cons, List.sum_cons, ← ih]
+      by_cases h : ((bi.eval asg).busId, (bi.eval asg).payload) = m
+      · rw [if_pos h, decide_eq_true h]; simp
+      · rw [if_neg h, decide_eq_false h]; simp
+  rw [hmapIf]
+  conv_lhs => rw [← List.ofFn_get c.busInteractions, List.map_ofFn, List.sum_ofFn]
+  exact Finset.sum_congr rfl (fun i _ => by simp [Circuit.msgAt, Circuit.multAt])
+
 /-- **A step's net memory receives sit strictly before its own window.** The other half of what
     `StepLayout.memSendsOk` needs: its hypothesis quantifies over messages the step *nets* a
     receive on, and the induction can only supply those at a strictly smaller rank.
@@ -134,23 +153,7 @@ theorem exists_recv_of_allEffects_neg_one {c : Circuit p} {r : GuestBusRules p}
     have hai := hmkActive i hmi (by rw [hi]; exact hone_ne_zero)
     have haj := hmkActive j hmj (by rw [hj]; exact hone_ne_zero)
     exact huniq i j hai haj hmi hmj
-  -- `allEffects` as a per-interaction guarded sum, then reindexed by `Fin`.
-  have hmapIf : c.allEffects asg m = (c.busInteractions.map (fun bi =>
-      if ((bi.eval asg).busId, (bi.eval asg).payload) = m then (bi.eval asg).multiplicity
-      else 0)).sum := by
-    simp only [Circuit.allEffects]
-    induction c.busInteractions with
-    | nil => simp
-    | cons bi t ih =>
-      simp only [List.map_cons, List.filter_cons, List.sum_cons, ← ih]
-      by_cases h : ((bi.eval asg).busId, (bi.eval asg).payload) = m
-      · rw [if_pos h, decide_eq_true h]; simp
-      · rw [if_neg h, decide_eq_false h]; simp
-  have hsum : c.allEffects asg m
-      = ∑ i : Fin c.busInteractions.length, (if c.msgAt asg i = m then c.multAt asg i else 0) := by
-    rw [hmapIf]
-    conv_lhs => rw [← List.ofFn_get c.busInteractions, List.map_ofFn, List.sum_ofFn]
-    exact Finset.sum_congr rfl (fun i _ => by simp [Circuit.msgAt, Circuit.multAt])
+  have hsum := allEffects_eq_sum_fin c asg m
   have hboole : ∑ i : Fin c.busInteractions.length,
       (if c.msgAt asg i = m then c.multAt asg i else 0)
       = ((Finset.univ.filter (fun i : Fin c.busInteractions.length =>
@@ -178,3 +181,43 @@ theorem exists_recv_of_allEffects_neg_one {c : Circuit p} {r : GuestBusRules p}
       by_contra h; rw [if_neg h] at hkmem; exact hone_ne_zero hkmem.symm
     rw [if_pos hmk] at hkmem
     exact hcon ⟨k, hmkActive k hmk (by rw [hkmem]; exact hone_ne_zero), hkmem.trans hnet, hmk⟩
+
+/-- **A step that nets a receive on a memory message does not also send it.**
+    `memInteractionsUnique` caps a step at one send and one receive of any given message, so a
+    send would cancel the receive and leave a net of `0` rather than `-1`. -/
+theorem not_memSend_of_allEffects_neg_one {c : Circuit p} {r : GuestBusRules p}
+    {asg : ChipAssignment p} {maxWindow maxLookback : ℕ}
+    (L : StepLayout c r asg maxWindow maxLookback)
+    (hpol : c.statefulPolarity r) (hsat : c.satisfiesAlgebraic asg)
+    (hstateful : r.isStateful r.memBusId = true)
+    (hne0 : (-1 : ZMod p) ≠ 0) (hne1 : (-1 : ZMod p) ≠ 1)
+    {m : BusMessage p} (hmemBus : m.1 = r.memBusId) (hnet : c.allEffects asg m = -1)
+    {j : Fin c.busInteractions.length} (hactj : c.activeMem r asg j)
+    (hmultj : c.multAt asg j = 1) (hmsgj : c.msgAt asg j = m) : False := by
+  classical
+  obtain ⟨k, hactk, hmultk, hmsgk⟩ :=
+    exists_recv_of_allEffects_neg_one L hpol hsat hstateful hne0 hmemBus hnet
+  have hjk : j ≠ k := fun h => hne1 (by rw [← hmultk, ← h, hmultj])
+  -- Off `j` and `k` every guarded term vanishes: a `1` would be `j`, a `-1` would be `k`.
+  have hrest : ∀ i : Fin c.busInteractions.length, i ∈ Finset.univ → i ≠ j ∧ i ≠ k →
+      (if c.msgAt asg i = m then c.multAt asg i else 0) = 0 := by
+    rintro i - ⟨hij, hik⟩
+    by_cases hmi : c.msgAt asg i = m
+    · rw [if_pos hmi]
+      by_cases hz : c.multAt asg i = 0
+      · exact hz
+      have hbeq : (c.busInteractions.get i).busId = r.memBusId := by
+        have hb : (c.msgAt asg i).1 = m.1 := congrArg Prod.fst hmi
+        rw [show (c.busInteractions.get i).busId = (c.msgAt asg i).1 from rfl, hb, hmemBus]
+      have hacti : c.activeMem r asg i := ⟨⟨by rw [hbeq]; exact hstateful, hz⟩, hbeq⟩
+      rcases hpol asg hsat _ (List.get_mem c.busInteractions i) hacti.1.1 with h0 | h1 | hm1
+      · exact absurd h0 hz
+      · exact absurd (L.memInteractionsUnique i j hacti hactj (hmi.trans hmsgj.symm)
+          (h1.trans hmultj.symm)) hij
+      · exact absurd (L.memInteractionsUnique i k hacti hactk (hmi.trans hmsgk.symm)
+          (hm1.trans hmultk.symm)) hik
+    · exact if_neg hmi
+  have hsum := allEffects_eq_sum_fin c asg m
+  rw [Finset.sum_eq_add_of_mem j k (Finset.mem_univ j) (Finset.mem_univ k) hjk hrest,
+    if_pos hmsgj, if_pos hmsgk, hmultj, hmultk, add_neg_cancel] at hsum
+  exact hne0 (hnet.symm.trans hsum)

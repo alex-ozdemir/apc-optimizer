@@ -593,6 +593,15 @@ theorem bridge_arcs_disjoint {maxInstances maxInputInstances : ℕ}
   exact ⟨Tx, Ty, hTx2', hTy2', by omega, by omega,
     C.windows_disjoint hx hy hxy (by rw [hN]; omega) (by rw [hN]; omega) hTx2 hTy2⟩
 
+/-- **Two arcs cannot both hold the same instant.** The geometric core of
+    `openVmHost_receivesArePast`: an instant placed at a non-negative offset inside each of two
+    arcs' windows contradicts their disjointness. -/
+theorem slot_conflict {Tx Ty advx advy : ℕ} {offx offy : ℤ}
+    (hdisj : Tx + advx ≤ Ty ∨ Ty + advy ≤ Tx)
+    (heq : (Tx : ℤ) + offx = (Ty : ℤ) + offy)
+    (hx0 : 0 ≤ offx) (hx1 : offx < (advx : ℤ))
+    (hy0 : 0 ≤ offy) (hy1 : offy < (advy : ℤ)) : False := by omega
+
 end Bridge
 
 --------- The rank window ---------
