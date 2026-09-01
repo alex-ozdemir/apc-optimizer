@@ -100,7 +100,6 @@ ApcOptimizer.OpenVM.lt_gadget_offset
 ApcOptimizer.OpenVM.xor_three
 ApcOptimizer.OpenVM.isByte_of_xorThree
 ApcOptimizer.OpenVM.optAccepts
-ApcOptimizer.OpenVM.optOffsetUb_dominates
 ApcOptimizer.OpenVM.apc2105000Opt_hasStepLayout
 ApcOptimizer.OpenVM.apc2105000Opt_legalGuest
 ApcOptimizer.OpenVM.allEffects_eq_zero_of_mults_zero
@@ -231,17 +230,40 @@ ApcOptimizer.OpenVM.unoptWriteIsByte_2
 ApcOptimizer.OpenVM.unoptByteCheck
 ApcOptimizer.OpenVM.apc2105000UnoptChained_memSendsOk
 
-# `Legal.lean`'s `memOrdered`/`memSendsOk` restriction to the memory bus (added alongside
+# `Legal.lean`'s `memSendsOk` restriction to the memory bus (added alongside
 # `GuestBusRules.memPayloadOnly`, which settles every other stateful bus outright): the general
-# adapter from the old cross-bus `sendsOk` shape, and OpenVM's proof that its bus semantics
-# always has some multiplicity maintaining invariants off the memory bus.
+# adapter from the cross-bus `sendsOk` shape `ByteCheck.lean` produces, the receive-nets-`-1` step
+# it needs, and OpenVM's proof that its bus semantics always has some multiplicity maintaining
+# invariants off the memory bus.
 ApcOptimizer.OpenVM.memSendsOk_of_sendsOk
+ApcOptimizer.OpenVM.recvNet_of_msgSep
+ApcOptimizer.OpenVM.msgAt_ne_of_col
+ApcOptimizer.OpenVM.babyBear_offset_ne
 ApcOptimizer.OpenVM.defaultBusMap_mem_unique
 ApcOptimizer.OpenVM.maintainsInvariants_off_mem
 
-# `Audit/RealApcLegality.lean`'s `memOrdered` for the unoptimized APC: a `decide` over the
-# offset-upper-bound table, mirroring `optOffsetUb_dominates`.
-ApcOptimizer.OpenVM.unoptOffsetUb_dominates
+# `Audit/MemSep.lean`: the two message-separation checkers and their soundness, plus the offset
+# tables and pin-rule bridges `Audit/RealApcLegality.lean` reads them through. Roots are the
+# `apc2105000*_hasStepLayout` results below.
+ApcOptimizer.OpenVM.constDiff_sound
+ApcOptimizer.OpenVM.getD_map_eval
+ApcOptimizer.OpenVM.memSepAll_get
+ApcOptimizer.OpenVM.memInteractionsUnique_of_sep
+ApcOptimizer.OpenVM.optMemSep
+ApcOptimizer.OpenVM.gatedMemSep
+ApcOptimizer.OpenVM.msgSepOne_sound
+ApcOptimizer.OpenVM.msgSepAllBut_get
+ApcOptimizer.OpenVM.msgSep_of_sepAllBut
+ApcOptimizer.OpenVM.allEffects_msgAt_eq_multAt
+ApcOptimizer.OpenVM.optMsgSep
+ApcOptimizer.OpenVM.gatedMsgSep
+ApcOptimizer.OpenVM.optSepRules_hold
+ApcOptimizer.OpenVM.gatedSepRules_hold
+ApcOptimizer.OpenVM.optSendUb
+ApcOptimizer.OpenVM.optMemUb
+ApcOptimizer.OpenVM.gatedMemUb
+ApcOptimizer.OpenVM.unoptSendUb
+ApcOptimizer.OpenVM.unoptMemUb
 
 # `Audit/RealApcLegality.lean`'s full step layout for the chained-but-unoptimized APC, and the
 # `legalGuest` it assembles into — the closing result for finding G's memory half on this circuit.

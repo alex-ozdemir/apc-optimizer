@@ -133,12 +133,13 @@ about the block:
 | --- | --- | --- | --- |
 | `statelessSendOnly` / `statefulPolarity` | true | true | true, out of checker reach |
 | `hasStepLayout` | **false** — four unchained steps | **true** — one step | **false** — padding row |
+| `memInteractionsUnique` (chained / pinned) | **false** — see below | **true** | **true** |
 
 Both falsities are properties of the circuits, not the clause. The unoptimized stage is four
 instruction steps whose bridge states do not cancel until powdr's substitution pass chains their
 timestamps (`from_state__timestamp_{i+1} = from_state__timestamp_i + d_i`); adding those three
 equations collapses it to the one step `039` already has
-(`apc2105000UnoptChained_hasStepLayout`). The final stage's padding gate makes the all-zero
+(`apc2105000UnoptChained_hasStepLayout`, modulo the `UnoptChainedMemSep` hypothesis below). The final stage's padding gate makes the all-zero
 assignment algebraically satisfying with a bridge net of `0`, where a step's receive must net `-1`
 (`apc2105000Gated_not_hasStepLayout`); pinning `is_valid` restores it
 (`apc2105000GatedPinned_hasStepLayout`). Every "true" above is a decidable checker plus a
@@ -150,20 +151,33 @@ form, then deciding the bridge shape, each interaction's offset (via a per-inter
 and the byte invariant, respectively — each exposing a soundness theorem as its audit surface and
 nothing about the search or arithmetic that produces its `Bool`.
 
-### WIP: the flat `memSendsOk` and `memInteractionsUnique`
+### The flat `memSendsOk` and the two separation clauses
 
-`StepLayout`'s memory obligation is being restated as a flat, offset-free hypothesis over net
-memory receives. Soundness is done and unconditional — `openVmHost_receivesArePast` discharges it
-from `VmChain.Chain.windows_disjoint`, and `openVm_vmSoundReplacement` rests only on Lean's three
-standard axioms. `Audit/RealApcLegality.lean` has **not** been rewired onto the new clauses and
-does not currently compile; it is excluded from the default target, so `lake build` stays green.
+`StepLayout`'s memory obligation is now a flat, offset-free hypothesis over net memory receives,
+carried by three clauses: `memInteractionsUnique`, `memSendOffsetNonneg`, `memOffsetLt`. Soundness
+is done and unconditional — `openVmHost_receivesArePast` discharges the hypothesis from
+`VmChain.Chain.windows_disjoint`, and `openVm_vmSoundReplacement` rests only on Lean's three
+standard axioms. `Audit/RealApcLegality.lean` is rewired onto the new clauses.
 
-`Audit/MemSep.lean` settles the new `memInteractionsUnique` for two of the three circuits by
-`decide` (~3s over the whole 23-interaction circuit). The clause compares interactions *at equal
-multiplicity*, so it never has to separate a read from the write that closes it, and what remains
-is decidable on the circuit alone: a multiplicity folding to `0` (never `activeMem`), or address
-columns folding to different constants, or multiplicities doing so. `apc2105000Opt` and
-`apc2105000GatedPinned` clear it with zero unseparated pairs.
+`Audit/MemSep.lean` decides both separations the new clauses need, at two strengths.
+
+- `memSepAll` settles `memInteractionsUnique`: the clause compares interactions *at equal
+  multiplicity*, so it never has to separate a read from the write that closes it, and what remains
+  is decidable on the circuit alone — a multiplicity folding to `0` (never `activeMem`), or address
+  columns folding to different constants, or multiplicities doing so.
+- `msgSepAllBut` is the same idea at full strength, separating *messages* rather than
+  messages-at-equal-multiplicity. That is what a receive has to clear before it counts as a *net*
+  receive, which is the only form `memSendsOk`'s hypothesis speaks in. Full strength is beyond any
+  `Bool` — a read's echo repeats its address and data and differs only in a timestamp — so the
+  check takes an `exempt` list of pairs, and the five read/echo pairs are closed by hand off the lt
+  gadget's own lookback bound (`babyBear_offset_ne`: offsets live in `[-2 ^ 29, 11]`, a window far
+  narrower than `babyBear`, so the integer cast is injective on it).
+
+`apc2105000Opt` and `apc2105000GatedPinned` clear both, unconditionally, with zero unseparated
+pairs beyond those five. Their `memSendsOk` proofs now run a strong induction on interaction index
+(`memSendsOk_of_sendsOk`): an earlier active memory interaction is either a send, settled by the
+induction hypothesis, or a receive, settled by the flat hypothesis. That replaces the old
+conversion from `place` order into index order, so the `*OffsetUb_dominates` tables are gone.
 
 **`memInteractionsUnique` is false for `apc2105000UnoptChained`.** Four receive/receive pairs
 survive every static reason — (15,47) at address `52`, and (27,55)/(27,62)/(55,62) at address `44`.
@@ -191,8 +205,10 @@ Two weakenings, worked out but not implemented:
 
 Neither weakening rescues `apc2105000UnoptChained`, and probably no per-chip condition can: that
 circuit is under-constrained as a standalone chip, its free `prev_data` columns able to impersonate
-any data tuple. Documenting it as failing the strengthened `hasStepLayout` — as `apc2105000Gated`
-already is — is likelier right than weakening the clause until it fits.
+any data tuple. Weakening the clause until it fits is the wrong move; instead
+`apc2105000UnoptChained_hasStepLayout` now takes `UnoptChainedMemSep` — exactly the separation the
+circuit does not force — as a hypothesis, so everything else about its layout (the bridge, all `71`
+placements, the byte invariant) stays measured rather than deleted.
 
 ## Known limitations
 
