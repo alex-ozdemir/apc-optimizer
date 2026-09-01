@@ -122,6 +122,17 @@ theorem openVm_one_ne_two (P : OpenVmParams p) : (1 : ZMod p) ≠ 2 := by
   rw [show ((1 : ℕ) : ZMod p) = (1 : ZMod p) by push_cast; ring, h1, ZMod.val_zero] at hval
   omega
 
+/-- The timestamp of an `InputRead`'s peeked-register message: payload index `6`, past the two
+    header fields and the four limbs. -/
+theorem inputRead_ptr_timestamp (r : InputRead p) (ptrReg : Nat) (ts : ZMod p) :
+    openVmTimestamp openVmMemBusId
+      ((1 : Nat), [(1 : ZMod p), (ptrReg : ZMod p)] ++ r.ptrLimbs.toList ++ [ts]) = ts := by
+  have h4 : r.ptrLimbs.toList.length = 4 := by simp
+  simp only [openVmTimestamp, openVmMemBusId, List.cons_append, List.nil_append]
+  rw [List.getElem?_cons_succ, List.getElem?_cons_succ,
+    List.getElem?_append_right (by omega), h4]
+  simp
+
 /-- **An `InputRead`'s memory contribution at a message it does not send**: `0` or `-1`. The two
     bridge messages are on another bus, the two sends are excluded by hypothesis, and the two
     receives carry different address spaces, so at most one of them lands on `m`. -/
@@ -821,6 +832,269 @@ theorem openVmHost_ordersRanks [Fact p.Prime] (P : OpenVmParams p) :
   show (openVmRankModel (p := p) openVmMemBusId).rank _
     < (openVmRankModel (p := p) openVmMemBusId).rank _
   simp only [openVmRankModel]
+  omega
+
+/-- **`openVmHost` never lets a step net-receive inside its own window.** The last undischarged
+    assumption of the VM-level soundness theorem.
+
+    Suppose it did. The record's timestamp then sits at a non-negative offset strictly inside the
+    step's window (`StepLayout.memOffsetLt`), so *somebody* has to have sent it — and every possible
+    sender places it inside a window of their own: a guest step or an input-chip instance by their
+    layouts, and memory initialization at timestamp `0`, before the run. `memMsg_arc_unique` pins
+    all of those to the receiving step's own arc, which `not_memSend_of_allEffects_neg_one` rules
+    out. Nothing is left to send it, so the message carries a pile of receives that cannot balance
+    (`guestNet_add_ne_zero_of_uniform_many`, on `OpenVmParams.memBudgetOk`'s budget). -/
+theorem openVmHost_receivesArePast [Fact p.Prime] (P : OpenVmParams p) :
+    (openVmHost P).receivesArePast (openVmGuestRules defaultBusMap openVmMemBusId) := by
+  classical
+  have hp := P.windowOk
+  have hppos : 0 < p := Nat.lt_of_le_of_lt (Nat.zero_le _) hp
+  haveI : NeZero p := ⟨by omega⟩
+  have hne0 : (-1 : ZMod p) ≠ 0 := neg_ne_zero.mpr one_ne_zero
+  intro G hGuests a hsat t asg hasg L k hactk hnetk
+  by_contra hcon
+  have hoff0 : (0 : ℤ) ≤ L.tOffset k := by omega
+  obtain ⟨jx, hjx⟩ := List.get_of_mem hasg
+  subst hjx
+  -- The same scaffolding `openVmHost_ordersRanks` runs on.
+  have hNonempty : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
+      Nonempty (StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
+        ((a.guestAssignments x.1).get x.2) P.maxWindow openVmTimestampBound) :=
+    fun x => openVmHost_stepLayout_unpack P _ (hGuests _ (List.get_mem G x.1))
+      _ (hsat.satisfiesGuest x.1 _ (List.get_mem _ _))
+      (satisfiesStateless_of_sinks (openVmHost_legalGuest_unpack P) (openVmHost_sinksAreTables P)
+        hGuests hsat x.1 _ (List.get_mem _ _))
+  let S : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
+      StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
+        ((a.guestAssignments x.1).get x.2) P.maxWindow openVmTimestampBound :=
+    fun x => if h : x = ⟨t, jx⟩ then by subst h; exact L else Classical.choice (hNonempty x)
+  have hSL : S ⟨t, jx⟩ = L := by simp only [S, dif_pos]
+  obtain ⟨r, iR, hiReq, hrnet⟩ := openVmHost_bridge_isolated P hsat.satisfiesHost
+  have hbal : ∀ m : BusMessage p, m.1 = 0 →
+      a.guestAssignments.busEffect m +
+        (∑ i, busStateOf ((iR i).interactions P.ptrReg 0 1) m)
+        + busStateOf (r.interactions 0) m = 0 := by
+    intro m hm
+    have hb := hsat.balances m
+    rw [busEffect_apply, hrnet m hm] at hb
+    linear_combination hb
+  have hcount : (∑ s : Fin G.length, (a.guestAssignments s).length) ≤ P.maxInstances :=
+    hsat.withinBudget
+  have hcountI : (a.hostAssignment (openVmInputChip P)).length ≤ P.maxInputInstances :=
+    hsat.satisfiesHost.withinBound (openVmInputChip P)
+  set m := (G.get t).msgAt ((a.guestAssignments t).get jx) k with hmdef
+  have hmem : m.1 = openVmMemBusId := hactk.2
+  have hklt : L.tOffset k < (L.tWindow : ℤ) := L.memOffsetLt k hactk
+  obtain ⟨hlowk, hhighk, htsk⟩ := L.tOffsetMatch k hactk.1
+  -- Where the receiving step places the record.
+  have htsrecv : openVmTimestamp openVmMemBusId m
+      = openVmBridgeTimestamp
+          (bridgeSrc a.guestAssignments S iR r
+            (some (Sum.inl ⟨t, jx⟩) :
+              BridgeArc a.guestAssignments (a.hostAssignment (openVmInputChip P)).length))
+        + ((L.tOffset k : ℤ) : ZMod p) := by
+    show openVmTimestamp openVmMemBusId m = (S ⟨t, jx⟩).tStart + _
+    rw [hSL]; exact htsk
+  have hadvrecv : bridgeAdv a.guestAssignments S
+      (some (Sum.inl ⟨t, jx⟩) :
+        BridgeArc a.guestAssignments (a.hostAssignment (openVmInputChip P)).length)
+      = L.tWindow := by
+    show (S ⟨t, jx⟩).tWindow = L.tWindow
+    rw [hSL]
+  -- No guest instance sends the record.
+  have huni : ∀ s : Fin G.length, ∀ asg' ∈ a.guestAssignments s,
+      (G.get s).uniformAt asg' m (-1) := by
+    intro s asg' hasg' bi hbi hmsgbi
+    obtain ⟨jy, hjy⟩ := List.get_of_mem hasg'
+    subst hjy
+    obtain ⟨j, hj⟩ := List.get_of_mem hbi
+    have hmsgj : (G.get s).msgAt ((a.guestAssignments s).get jy) j = m := by
+      rw [Circuit.msgAt, hj]; exact hmsgbi
+    have hbusj : ((G.get s).busInteractions.get j).busId = openVmMemBusId := by
+      have hb : ((G.get s).msgAt ((a.guestAssignments s).get jy) j).1 = m.1 :=
+        congrArg Prod.fst hmsgj
+      rw [show ((G.get s).busInteractions.get j).busId
+        = ((G.get s).msgAt ((a.guestAssignments s).get jy) j).1 from rfl, hb, hmem]
+    have hstj : (openVmGuestRules (p := p) defaultBusMap openVmMemBusId).isStateful
+        ((G.get s).busInteractions.get j).busId = true := by rw [hbusj]; rfl
+    rw [← hj]
+    rcases (openVmHost_legalGuest_unpack P _ (hGuests _ (List.get_mem G s))).polarity
+      _ (hsat.satisfiesGuest s _ (List.get_mem _ _)) _ (List.get_mem _ j) hstj with h0 | h1 | hm1
+    · exact Or.inl h0
+    · -- A send: its own arc would have to be the receiving step's, which does not send `m`.
+      exfalso
+      have hactj : (G.get s).activeMem (openVmGuestRules defaultBusMap openVmMemBusId)
+          ((a.guestAssignments s).get jy) j :=
+        ⟨⟨hstj, fun hz => one_ne_zero (h1.symm.trans hz)⟩, hbusj⟩
+      obtain ⟨hlowj, hhighj, htsj⟩ := (S ⟨s, jy⟩).tOffsetMatch j hactj.1
+      have hsendj : (G.get s).memSend (openVmGuestRules defaultBusMap openVmMemBusId)
+          ((a.guestAssignments s).get jy) j := ⟨⟨hstj, h1⟩, hbusj⟩
+      have hj0 : (0 : ℤ) ≤ (S ⟨s, jy⟩).tOffset j := (S ⟨s, jy⟩).memSendOffsetNonneg j hsendj
+      have hjlt : (S ⟨s, jy⟩).tOffset j < ((S ⟨s, jy⟩).tWindow : ℤ) :=
+        (S ⟨s, jy⟩).memOffsetLt j hactj
+      have htssend : openVmTimestamp openVmMemBusId m
+          = openVmBridgeTimestamp
+              (bridgeSrc a.guestAssignments S iR r
+                (some (Sum.inl ⟨s, jy⟩) :
+                  BridgeArc a.guestAssignments (a.hostAssignment (openVmInputChip P)).length))
+            + (((S ⟨s, jy⟩).tOffset j : ℤ) : ZMod p) := by
+        show openVmTimestamp openVmMemBusId m = (S ⟨s, jy⟩).tStart + _
+        rw [← hmsgj]; exact htsj
+      have harc := memMsg_arc_unique a.guestAssignments S iR P.ptrReg r
+        (openVm_negOne_ne_one P) hbal P.inputWindowOk hcount hcountI hp P.rankWindowOk hmem
+        (some (Sum.inl ⟨s, jy⟩)) (some (Sum.inl ⟨t, jx⟩)) (by simp) (by simp)
+        hj0 hjlt hoff0 (by rw [hadvrecv]; exact hklt) htssend htsrecv
+      -- Same arc: the receiving step would both send and net-receive `m`.
+      simp only [Option.some.injEq, Sum.inl.injEq] at harc
+      obtain ⟨rfl, hjy2⟩ := Sigma.mk.inj harc
+      have hjyx : jy = jx := eq_of_heq hjy2
+      subst hjyx
+      exact not_memSend_of_allEffects_neg_one L
+        (openVmHost_legalGuest_unpack P _ (hGuests _ (List.get_mem G s))).polarity
+        (hsat.satisfiesGuest s _ (List.get_mem _ _)) rfl hne0 (openVm_negOne_ne_one P)
+        hmem hnetk hactj h1 hmsgj
+    · exact Or.inr hm1
+  -- The record sits at `1 + T + offset ≥ 1`, so memory initialization (timestamp `0`) is not
+  -- its sender either.
+  obtain ⟨T, hbase, hfitT⟩ := bridge_chain_bound a.guestAssignments S iR P.ptrReg r
+    (openVm_negOne_ne_one P) hbal P.inputWindowOk hcount hcountI hp ⟨t, jx⟩
+  rw [hSL] at hbase hfitT
+  have hbnd : ((openVmTimestampBound : ℕ) : ℤ) < (p : ℤ) := by
+    have h1 := P.rankWindowOk
+    simp only [openVmRankBound, openVmRankShift] at h1
+    omega
+  have hcastm : openVmTimestamp openVmMemBusId m = (((1 + T + L.tOffset k : ℤ)) : ZMod p) := by
+    have h : openVmTimestamp openVmMemBusId m = L.tStart + ((L.tOffset k : ℤ) : ZMod p) := htsk
+    rw [h, hbase]; push_cast; ring
+  have hts_ne_zero : openVmTimestamp openVmMemBusId m ≠ 0 := by
+    rw [hcastm]
+    intro h
+    have hfin := r.finalTimestampBounded
+    have hdvd := (ZMod.intCast_zmod_eq_zero_iff_dvd _ _).mp h
+    have hle := Int.le_of_dvd (by omega) hdvd
+    omega
+  -- Off the finalization and input chips nothing touches `m` at all.
+  have hhostZero : ∀ u : Fin (openVmHost P).chips.length,
+      (u : ℕ) ≠ 5 → (u : ℕ) ≠ 6 → ∀ c ∈ a.hostAssignment u, c m = 0 := by
+    intro u h5 h6 c hc
+    by_contra hz
+    have hleg := hsat.satisfiesHost.producible u c hc
+    fin_cases u
+    · exact absurd (hleg m hz).1 (by rw [hmem]; simp only [openVmMemBusId]; omega)
+    · exact absurd (hleg m hz).1 (by rw [hmem]; simp only [openVmMemBusId]; omega)
+    · exact absurd (hleg m hz).1 (by rw [hmem]; simp only [openVmMemBusId]; omega)
+    · exact absurd (hleg m hz).1 (by rw [hmem]; simp only [openVmMemBusId]; omega)
+    · -- memory initialization: pinned to timestamp `0`
+      obtain ⟨-, -, f, -, -, hts0, -⟩ := hleg m hz
+      exact hts_ne_zero (by
+        simp [openVmTimestamp, hts0, hmem])
+    · exact absurd rfl h5
+    · exact absurd rfl h6
+    · obtain ⟨r', hr'⟩ := hleg
+      rw [hr'] at hz
+      exact hz (busStateOf_eq_zero_of_busId_ne (fun e he => by
+        rw [ConnectorBoundary.interactions_busId r' 0 e he, hmem]
+        simp only [openVmMemBusId]; omega))
+  -- Finalization only receives; an input instance receives at most once (its two receives carry
+  -- different address spaces) and cannot send, since its slot is not the receiving step's.
+  have hhostUni : ∀ u : Fin (openVmHost P).chips.length, ∀ c ∈ a.hostAssignment u,
+      c m = 0 ∨ c m = -1 := by
+    intro u c hc
+    by_cases hz : c m = 0
+    · exact Or.inl hz
+    have hleg := hsat.satisfiesHost.producible u c hc
+    by_cases h5 : (u : ℕ) = 5
+    · refine Or.inr ?_
+      have : u = openVmFinalizeIdx P := Fin.ext (by rw [h5]; rfl)
+      subst this
+      exact (hleg m hz).2.1
+    by_cases h6 : (u : ℕ) = 6
+    · have hu6 : u = openVmInputChip P := Fin.ext (by rw [h6]; rfl)
+      subst hu6
+      obtain ⟨i, hi⟩ := List.get_of_mem hc
+      rw [← hi, hiReq i]
+      have hsrc : openVmBridgeTimestamp (bridgeSrc a.guestAssignments S iR r
+          (some (Sum.inr i) :
+            BridgeArc a.guestAssignments (a.hostAssignment (openVmInputChip P)).length))
+          = (iR i).base := rfl
+      have hadv : bridgeAdv a.guestAssignments S
+          (some (Sum.inr i) :
+            BridgeArc a.guestAssignments (a.hostAssignment (openVmInputChip P)).length)
+          = inputStepWindow := rfl
+      refine inputRead_busStateOf_mem (iR i) P.ptrReg hmem (openVm_one_ne_two P) ?_ ?_
+      · -- the peeked register's write-back, at offset `1` of the input instance's own window
+        intro hEq
+        refine absurd (memMsg_arc_unique a.guestAssignments S iR P.ptrReg r
+          (openVm_negOne_ne_one P) hbal P.inputWindowOk hcount hcountI hp P.rankWindowOk hmem
+          (some (Sum.inr i)) (some (Sum.inl ⟨t, jx⟩)) (by simp) (by simp)
+          (offx := (1 : ℤ)) (offy := L.tOffset k) (by norm_num)
+          (by rw [hadv]; simp [inputStepWindow]) hoff0 (by rw [hadvrecv]; exact hklt)
+          (by rw [hsrc, ← hEq, inputRead_ptr_timestamp]; push_cast; ring) htsrecv) (by simp)
+      · -- the word write, at offset `2`
+        intro hEq
+        refine absurd (memMsg_arc_unique a.guestAssignments S iR P.ptrReg r
+          (openVm_negOne_ne_one P) hbal P.inputWindowOk hcount hcountI hp P.rankWindowOk hmem
+          (some (Sum.inr i)) (some (Sum.inl ⟨t, jx⟩)) (by simp) (by simp)
+          (offx := (2 : ℤ)) (offy := L.tOffset k) (by norm_num)
+          (by rw [hadv]; simp [inputStepWindow]) hoff0 (by rw [hadvrecv]; exact hklt)
+          (by
+            rw [hsrc, ← hEq]
+            simp only [openVmTimestamp, openVmMemBusId,
+              List.getElem?_cons_succ, List.getElem?_cons_zero, Option.getD_some]
+            push_cast; ring) htsrecv) (by simp)
+    · exact absurd (hhostZero u h5 h6 c hc) hz
+  -- The host's whole net there is a pile of at most `maxInputInstances + 1` receives.
+  have hcnt : ∀ u : Fin (openVmHost P).chips.length,
+      ((a.hostAssignment u).map (fun e => e m)).sum
+        = ((((a.hostAssignment u).map (fun e => e m)).countP (fun v => decide (v ≠ 0)) : ℕ)
+            : ZMod p) * (-1) :=
+    fun u => sum_eq_countP_mul (fun x hx => by
+      obtain ⟨c, hc, rfl⟩ := List.mem_map.mp hx
+      exact hhostUni u c hc)
+  set cnt : Fin (openVmHost P).chips.length → ℕ :=
+    fun u => ((a.hostAssignment u).map (fun e => e m)).countP (fun v => decide (v ≠ 0))
+    with hcntdef
+  have hcnt0 : ∀ u : Fin (openVmHost P).chips.length, (u : ℕ) ≠ 5 → (u : ℕ) ≠ 6 → cnt u = 0 := by
+    intro u h5 h6
+    refine List.countP_eq_zero.mpr (fun x hx => ?_)
+    obtain ⟨c, hc, rfl⟩ := List.mem_map.mp hx
+    simp [hhostZero u h5 h6 c hc]
+  have hcntle : ∀ u : Fin (openVmHost P).chips.length, cnt u ≤ (a.hostAssignment u).length :=
+    fun u => le_trans List.countP_le_length (by simp)
+  have hsumcnt : ∑ u : Fin (openVmHost P).chips.length, cnt u ≤ P.maxInputInstances + 1 := by
+    have hfin : cnt (openVmFinalizeIdx P) ≤ 1 :=
+      le_trans (hcntle _) (hsat.satisfiesHost.withinBound (openVmFinalizeIdx P))
+    have hinp : cnt (openVmInputChip P) ≤ P.maxInputInstances := le_trans (hcntle _) hcountI
+    have hsub : ∑ u : Fin (openVmHost P).chips.length, cnt u
+        = ∑ u ∈ ({openVmFinalizeIdx P, openVmInputChip P} :
+            Finset (Fin (openVmHost P).chips.length)), cnt u := by
+      refine (Finset.sum_subset (Finset.subset_univ _) ?_).symm
+      intro u _ hu
+      simp only [Finset.mem_insert, Finset.mem_singleton, not_or] at hu
+      exact hcnt0 u (fun h => hu.1 (Fin.ext (by rw [h]; rfl)))
+        (fun h => hu.2 (Fin.ext (by rw [h]; rfl)))
+    have hne56 : openVmFinalizeIdx P ≠ openVmInputChip P := by
+      intro h
+      have h' := congrArg Fin.val h
+      simp only [openVmFinalizeIdx, openVmInputChip] at h'
+      omega
+    rw [hsub, Finset.sum_pair hne56]
+    omega
+  have hhostnet : a.hostAssignment.busEffect m
+      = ((∑ u : Fin (openVmHost P).chips.length, cnt u : ℕ) : ZMod p) * (-1) := by
+    show (∑ u : Fin (openVmHost P).chips.length,
+      ((a.hostAssignment u).map (fun e => e m)).sum) = _
+    rw [Nat.cast_sum, Finset.sum_mul]
+    exact Finset.sum_congr rfl (fun u _ => hcnt u)
+  -- Nobody sent it, so the receives cannot balance.
+  have hSize : ∀ c ∈ G, c.busInteractions.length ≤ (openVmHost P).maxInteractions :=
+    fun c hc => (openVmHost_legalGuest_unpack P c (hGuests c hc)).size
+  have hbalm := hsat.balances m
+  rw [busEffect_apply, hhostnet] at hbalm
+  refine guestNet_add_ne_zero_of_uniform_many hsat hSize ?_ hne0 huni
+    (List.get_mem _ _) (List.get_mem _ k) rfl hactk.1.2 hsumcnt rfl hbalm
+  show P.maxInteractions * P.maxInstances + (P.maxInputInstances + 1) < p
+  have := P.memBudgetOk
   omega
 
 end ApcOptimizer.OpenVM
