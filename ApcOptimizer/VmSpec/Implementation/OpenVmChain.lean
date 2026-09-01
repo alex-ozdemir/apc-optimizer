@@ -249,6 +249,48 @@ theorem _root_.StepLayout.net {c : Circuit p} {r : GuestBusRules p} {asg : ChipA
 
 --------- The bridge as a chain ---------
 
+--------- The rank window ---------
+
+/-- The two stateful buses of `defaultBusMap` are the ones `openVmRank` reads a timestamp from. -/
+theorem openVmIsStateful_default {b : Nat} (h : openVmIsStateful defaultBusMap b = true) :
+    b = openVmMemBusId ∨ b = openVmExecBusId := by
+  match b with
+  | 0 => exact Or.inr rfl
+  | 1 => exact Or.inl rfl
+  | 2 | 3 | 4 | 5 | 6 | 7 | _ + 8 =>
+    simp [openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at h
+
+/-- **A placed interaction's rank, read off the chain.** Its step's `base` is `1 + T` for an
+    honest natural `T`, so the timestamp is `1 + T + off` as an integer — and shifting by the
+    maximum lookback moves that into `[0, openVmRankBound)`, where no wraparound can spoof the
+    order. -/
+theorem rank_of_placed {memBusId : Nat} {m : BusMessage p} {T : ℕ} {off : ℤ} {d : ℕ}
+    (hpp : openVmRankBound < p) (hstate : m.1 = memBusId ∨ m.1 = openVmExecBusId)
+    (hlow : -(openVmTimestampBound : ℤ) ≤ off) (hhigh : off ≤ (d : ℤ))
+    (hfit : 1 + T + d ≤ openVmTimestampBound)
+    (hts : openVmTimestamp memBusId m = ((1 + T : ℕ) : ZMod p) + (off : ZMod p)) :
+    (openVmRank memBusId m : ℤ) = 1 + T + off + openVmRankShift := by
+  haveI : NeZero p := ⟨by have := hpp; omega⟩
+  have hz : ((1 + T : ℕ) : ZMod p) + (off : ZMod p) + ((openVmRankShift : ℕ) : ZMod p)
+      = (((1 + T + off + openVmRankShift : ℤ)) : ZMod p) := by push_cast; ring
+  have hrange : 0 ≤ (1 + T + off + openVmRankShift : ℤ) ∧
+      (1 + T + off + openVmRankShift : ℤ) < p := by
+    have h1 : (openVmRankShift : ℤ) = (openVmTimestampBound : ℤ) := rfl
+    have h2 : ((openVmRankBound : ℕ) : ℤ)
+        = (openVmTimestampBound : ℤ) + (openVmRankShift : ℤ) := by
+      simp [openVmRankBound]
+    have h3 : ((openVmRankBound : ℕ) : ℤ) < (p : ℤ) := by exact_mod_cast hpp
+    constructor
+    · omega
+    · have : (1 : ℤ) + T + off ≤ (openVmTimestampBound : ℤ) := by
+        have : ((1 + T + d : ℕ) : ℤ) ≤ (openVmTimestampBound : ℤ) := by exact_mod_cast hfit
+        push_cast at this
+        omega
+      omega
+  simp only [openVmRank, if_pos hstate, hts, hz]
+  rw [ZMod.val_intCast, Int.emod_eq_of_lt hrange.1 hrange.2]
+
+
 section Bridge
 
 variable {G : Guest p} {maxWindow : ℕ}
@@ -602,48 +644,42 @@ theorem slot_conflict {Tx Ty advx advy : ℕ} {offx offy : ℤ}
     (hx0 : 0 ≤ offx) (hx1 : offx < (advx : ℤ))
     (hy0 : 0 ≤ offy) (hy1 : offy < (advy : ℤ)) : False := by omega
 
+/-- **A memory message sits in at most one arc's window.** Its rank is a function of the message
+    alone (`rank_of_placed`), so two placements agree on `T + offset`; disjointness then leaves
+    only the arc it was placed in. This is what turns "somebody sent this record" into "*this*
+    step sent it". -/
+theorem memMsg_arc_unique {maxInstances maxInputInstances : ℕ}
+    (h2 : (-1 : ZMod p) ≠ 1)
+    (hbal : ∀ m : BusMessage p, m.1 = 0 →
+      gA.busEffect m + (∑ i : Fin n, busStateOf ((iR i).interactions ptrReg 0 1) m)
+        + busStateOf (r.interactions 0) m = 0)
+    (hIlt : inputStepWindow < maxWindow)
+    (hcount : (∑ s : Fin G.length, (gA s).length) ≤ maxInstances)
+    (hcountI : n ≤ maxInputInstances)
+    (hp : (maxInstances + maxInputInstances + 1) * (maxWindow + 1) < p)
+    (hrank : openVmRankBound < p)
+    {m : BusMessage p} (hmem : m.1 = openVmMemBusId)
+    (x y : BridgeArc gA n) (hx : x ≠ none) (hy : y ≠ none)
+    {offx offy : ℤ} (hx0 : 0 ≤ offx) (hx1 : offx < (bridgeAdv gA S x : ℤ))
+    (hy0 : 0 ≤ offy) (hy1 : offy < (bridgeAdv gA S y : ℤ))
+    (htsx : openVmTimestamp openVmMemBusId m
+      = openVmBridgeTimestamp (bridgeSrc gA S iR r x) + (offx : ZMod p))
+    (htsy : openVmTimestamp openVmMemBusId m
+      = openVmBridgeTimestamp (bridgeSrc gA S iR r y) + (offy : ZMod p)) :
+    x = y := by
+  by_contra hxy
+  obtain ⟨Tx, Ty, hTx, hTy, hfx, hfy, hdisj⟩ :=
+    bridge_arcs_disjoint gA S iR ptrReg r h2 hbal hIlt hcount hcountI hp x y hx hy hxy
+  have hfin := r.finalTimestampBounded
+  have hrx := rank_of_placed (memBusId := openVmMemBusId) (T := Tx) (off := offx)
+    (d := bridgeAdv gA S x) hrank (Or.inl hmem)
+    (by omega) (le_of_lt hx1) (by omega) (by rw [htsx, hTx])
+  have hry := rank_of_placed (memBusId := openVmMemBusId) (T := Ty) (off := offy)
+    (d := bridgeAdv gA S y) hrank (Or.inl hmem)
+    (by omega) (le_of_lt hy1) (by omega) (by rw [htsy, hTy])
+  exact slot_conflict hdisj (by omega) hx0 hx1 hy0 hy1
+
 end Bridge
-
---------- The rank window ---------
-
-/-- The two stateful buses of `defaultBusMap` are the ones `openVmRank` reads a timestamp from. -/
-theorem openVmIsStateful_default {b : Nat} (h : openVmIsStateful defaultBusMap b = true) :
-    b = openVmMemBusId ∨ b = openVmExecBusId := by
-  match b with
-  | 0 => exact Or.inr rfl
-  | 1 => exact Or.inl rfl
-  | 2 | 3 | 4 | 5 | 6 | 7 | _ + 8 =>
-    simp [openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at h
-
-/-- **A placed interaction's rank, read off the chain.** Its step's `base` is `1 + T` for an
-    honest natural `T`, so the timestamp is `1 + T + off` as an integer — and shifting by the
-    maximum lookback moves that into `[0, openVmRankBound)`, where no wraparound can spoof the
-    order. -/
-theorem rank_of_placed {memBusId : Nat} {m : BusMessage p} {T : ℕ} {off : ℤ} {d : ℕ}
-    (hpp : openVmRankBound < p) (hstate : m.1 = memBusId ∨ m.1 = openVmExecBusId)
-    (hlow : -(openVmTimestampBound : ℤ) ≤ off) (hhigh : off ≤ (d : ℤ))
-    (hfit : 1 + T + d ≤ openVmTimestampBound)
-    (hts : openVmTimestamp memBusId m = ((1 + T : ℕ) : ZMod p) + (off : ZMod p)) :
-    (openVmRank memBusId m : ℤ) = 1 + T + off + openVmRankShift := by
-  haveI : NeZero p := ⟨by have := hpp; omega⟩
-  have hz : ((1 + T : ℕ) : ZMod p) + (off : ZMod p) + ((openVmRankShift : ℕ) : ZMod p)
-      = (((1 + T + off + openVmRankShift : ℤ)) : ZMod p) := by push_cast; ring
-  have hrange : 0 ≤ (1 + T + off + openVmRankShift : ℤ) ∧
-      (1 + T + off + openVmRankShift : ℤ) < p := by
-    have h1 : (openVmRankShift : ℤ) = (openVmTimestampBound : ℤ) := rfl
-    have h2 : ((openVmRankBound : ℕ) : ℤ)
-        = (openVmTimestampBound : ℤ) + (openVmRankShift : ℤ) := by
-      simp [openVmRankBound]
-    have h3 : ((openVmRankBound : ℕ) : ℤ) < (p : ℤ) := by exact_mod_cast hpp
-    constructor
-    · omega
-    · have : (1 : ℤ) + T + off ≤ (openVmTimestampBound : ℤ) := by
-        have : ((1 + T + d : ℕ) : ℤ) ≤ (openVmTimestampBound : ℤ) := by exact_mod_cast hfit
-        push_cast at this
-        omega
-      omega
-  simp only [openVmRank, if_pos hstate, hts, hz]
-  rw [ZMod.val_intCast, Int.emod_eq_of_lt hrange.1 hrange.2]
 
 --------- The rank order ---------
 
