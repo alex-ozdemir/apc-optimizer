@@ -207,7 +207,11 @@ theorem stepChip_hasStepLayout (hp : 3 < p) {maxWindow maxLookback : ℕ} (hw : 
   have hnegz : (-1 : ZMod p) ≠ 0 := fun hcon => one_ne_zero (α := ZMod p) (by
     linear_combination -hcon)
   intro asg _ _
-  refine ⟨⟨pcFrom, pcTo, base, 3, by norm_num, hw, ?_, ?_, ?_, fun i => (i.val : ℤ), ?_, ?_⟩⟩
+  have hone_ne_two : (1 : ZMod p) ≠ 2 := fun h => one_ne_zero (α := ZMod p)
+    (by linear_combination -h)
+  have hb12 : (base : ZMod p) + 1 ≠ base + 2 := fun h => hone_ne_two (by linear_combination h)
+  refine ⟨⟨pcFrom, pcTo, base, 3, by norm_num, hw, ?_, ?_, ?_, fun i => (i.val : ℤ), ?_,
+    ?_, ?_, ?_, ?_⟩⟩
   · simp [Circuit.allEffects, stepChip, bridgeRecv, bridgeSend, readEchoRecv, readEchoSend,
       assertLtLoLookup, assertLtHiLookup, BusInteraction.eval, Expression.eval,
       openVmGuestRules, h3]
@@ -239,28 +243,55 @@ theorem stepChip_hasStepLayout (hp : 3 < p) {maxWindow maxLookback : ℕ} (hw : 
         OpenVmBusType.isStateful] at hst
     · simp [stepChip, assertLtHiLookup, openVmGuestRules, openVmIsStateful, defaultBusMap,
         OpenVmBusType.isStateful] at hst
-  · rintro i ⟨⟨hst, hmult⟩, hbmem⟩ hlow
+  · -- `memInteractionsUnique`: the step's two memory interactions differ in multiplicity.
+    rintro i j hmi hmj - hmult
+    fin_cases i <;> fin_cases j <;>
+      first
+      | rfl
+      | (simp [stepChip, bridgeRecv, bridgeSend, assertLtLoLookup, assertLtHiLookup,
+          Circuit.activeMem, Circuit.activeStateful, openVmGuestRules, openVmMemBusId,
+          openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hmi; done)
+      | (simp [stepChip, bridgeRecv, bridgeSend, assertLtLoLookup, assertLtHiLookup,
+          Circuit.activeMem, Circuit.activeStateful, openVmGuestRules, openVmMemBusId,
+          openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hmj; done)
+      | (simp [stepChip, readEchoRecv, readEchoSend, Circuit.multAt, BusInteraction.eval,
+          Expression.eval, hneg, Ne.symm hneg] at hmult)
+  · -- `memSendOffsetNonneg`: offsets are list positions here.
+    rintro i -
+    exact Int.natCast_nonneg _
+  · -- `memOffsetLt`: the two memory interactions sit at positions `1` and `2`, inside the window.
+    rintro i hmi
+    fin_cases i <;>
+      first
+      | (simp [stepChip, bridgeRecv, bridgeSend, assertLtLoLookup, assertLtHiLookup,
+          Circuit.activeMem, Circuit.activeStateful, openVmGuestRules, openVmMemBusId,
+          openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hmi; done)
+      | norm_num
+  · -- `memSendsOk`: the send echoes the record the step nets a receive on.
+    intro hyp i hsend
     fin_cases i
-    · exact absurd hmult hneg
-    · exact absurd hmult hneg
-    · -- The send echoes the receive one position earlier in the very same step; `tOffset` is list
-      -- position here, so "earlier in the step" and "earlier in the list" coincide.
-      have hrecv0 := hlow ⟨1, by simp [stepChip]⟩ (by norm_num) ⟨⟨rfl, hnegz⟩, rfl⟩
+    · simp [stepChip, bridgeRecv, Circuit.memSend, Circuit.statefulSend, openVmGuestRules,
+        openVmMemBusId] at hsend
+    · exact absurd hsend.1.2 hneg
+    · have hrecv0 : (openVmGuestRules (p := p) defaultBusMap openVmMemBusId).payloadOk
+          ((1 : ℕ), [(1 : ZMod p), ptr, asg x, 0, 0, 0, base + 1]) :=
+        hyp ((1 : ℕ), [(1 : ZMod p), ptr, asg x, 0, 0, 0, base + 1]) rfl (by
+          simp [Circuit.allEffects, stepChip, bridgeRecv, bridgeSend, readEchoRecv, readEchoSend,
+            assertLtLoLookup, assertLtHiLookup, BusInteraction.eval, Expression.eval,
+            Ne.symm hb12])
       replace hrecv0 : openVmPayloadOk defaultBusMap
         ((1 : ℕ), [(1 : ZMod p), ptr, asg x, 0, 0, 0, base + 1]) := hrecv0
-      have hrecv := hrecv0
       have hx : isByte (asg x) :=
-        ((openVmPayloadOk_mem_iff ptr (asg x) 0 0 0 (base + 1)).mp hrecv).1
+        ((openVmPayloadOk_mem_iff ptr (asg x) 0 0 0 (base + 1)).mp hrecv0).1
       show openVmPayloadOk defaultBusMap ((1 : ℕ), [(1 : ZMod p), ptr, asg x, 0, 0, 0, base + 2])
       exact (openVmPayloadOk_mem_iff ptr (asg x) 0 0 0 (base + 2)).mpr
         ⟨hx, isByte_zero, isByte_zero, isByte_zero⟩
-    · -- The bridge send is not on the memory bus at all, so `memSendsOk`'s own hypothesis rules
-      -- this case out.
-      simp [stepChip, bridgeSend, openVmGuestRules, openVmExecBusId, openVmMemBusId] at hbmem
-    · simp [stepChip, assertLtLoLookup, openVmGuestRules, openVmIsStateful, defaultBusMap,
-        OpenVmBusType.isStateful] at hst
-    · simp [stepChip, assertLtHiLookup, openVmGuestRules, openVmIsStateful, defaultBusMap,
-        OpenVmBusType.isStateful] at hst
+    · simp [stepChip, bridgeSend, Circuit.memSend, Circuit.statefulSend, openVmGuestRules,
+        openVmMemBusId] at hsend
+    · simp [stepChip, assertLtLoLookup, Circuit.memSend, Circuit.statefulSend, openVmGuestRules,
+        openVmMemBusId] at hsend
+    · simp [stepChip, assertLtHiLookup, Circuit.memSend, Circuit.statefulSend, openVmGuestRules,
+        openVmMemBusId] at hsend
 
 /-- Only the two range checks are stateless; the bridge pair and the memory access are both
     stateful. -/
@@ -369,8 +400,11 @@ theorem earlyEchoChip_hasStepLayout (hp : 3 < p) {maxWindow maxLookback : ℕ} (
   have hnegz : (-1 : ZMod p) ≠ 0 := fun hcon => one_ne_zero (α := ZMod p) (by
     linear_combination -hcon)
   intro asg _ _
+  have hone_ne_two : (1 : ZMod p) ≠ 2 := fun h => one_ne_zero (α := ZMod p)
+    (by linear_combination -h)
+  have hb12 : (base : ZMod p) + 1 ≠ base + 2 := fun h => hone_ne_two (by linear_combination h)
   refine ⟨⟨pcFrom, pcTo, base, 3, by norm_num, hw, ?_, ?_, ?_,
-    fun i => ([0, 2, 1, 3] : List ℤ).getD i.val 0, ?_, ?_⟩⟩
+    fun i => ([0, 2, 1, 3] : List ℤ).getD i.val 0, ?_, ?_, ?_, ?_, ?_⟩⟩
   · simp [Circuit.allEffects, earlyEchoChip, bridgeRecv, bridgeSend, readEchoRecv, readEchoSend,
       BusInteraction.eval, Expression.eval, openVmGuestRules, h3]
   · simp [Circuit.allEffects, earlyEchoChip, bridgeRecv, bridgeSend, readEchoRecv, readEchoSend,
@@ -395,12 +429,44 @@ theorem earlyEchoChip_hasStepLayout (hp : 3 < p) {maxWindow maxLookback : ℕ} (
     · exact ⟨by simp, by simp, by
         simp [earlyEchoChip, bridgeSend, openVmGuestRules, openVmTimestamp, Circuit.msgAt,
           BusInteraction.eval, Expression.eval, openVmMemBusId, openVmExecBusId]⟩
-  · rintro i ⟨⟨hst, hmult⟩, hbmem⟩ hlow
+  · -- `memInteractionsUnique`: the two memory interactions differ in multiplicity.
+    rintro i j hmi hmj - hmult
+    fin_cases i <;> fin_cases j <;>
+      first
+      | rfl
+      | (simp [earlyEchoChip, bridgeRecv, bridgeSend, readEchoRecv, readEchoSend,
+          Circuit.activeMem, Circuit.activeStateful, openVmGuestRules, openVmMemBusId,
+          openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hmi; done)
+      | (simp [earlyEchoChip, bridgeRecv, bridgeSend, readEchoRecv, readEchoSend,
+          Circuit.activeMem, Circuit.activeStateful, openVmGuestRules, openVmMemBusId,
+          openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hmj; done)
+      | (simp [earlyEchoChip, readEchoRecv, readEchoSend, Circuit.multAt, BusInteraction.eval,
+          Expression.eval, hneg, Ne.symm hneg] at hmult)
+  · -- `memSendOffsetNonneg`: the one memory send sits at offset `2`.
+    rintro i hs
+    fin_cases i <;>
+      first
+      | (simp [earlyEchoChip, bridgeRecv, bridgeSend, readEchoRecv, readEchoSend,
+          Circuit.memSend, Circuit.statefulSend, Circuit.multAt, BusInteraction.eval,
+          Expression.eval, openVmGuestRules, openVmMemBusId, hneg] at hs; done)
+      | norm_num
+  · -- `memOffsetLt`: both memory interactions sit at offsets `1` and `2`, inside the window.
+    rintro i hmi
+    fin_cases i <;>
+      first
+      | (simp [earlyEchoChip, bridgeRecv, bridgeSend, readEchoRecv, readEchoSend,
+          Circuit.activeMem, Circuit.activeStateful, openVmGuestRules, openVmMemBusId,
+          openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hmi; done)
+      | norm_num
+  · -- `memSendsOk`: the send echoes the record the step nets a receive on.
+    intro hyp i hsend
     fin_cases i
-    · exact absurd hmult hneg
-    · -- The send: justified by the receive, which sits later in the list (index `2`) but earlier
-      -- in `tOffset` (`1 < 2`).
-      have hrecv0 := hlow ⟨2, by simp [earlyEchoChip]⟩ (by simp) ⟨⟨rfl, hnegz⟩, rfl⟩
+    · exact absurd hsend.1.2 hneg
+    · have hrecv0 : (openVmGuestRules (p := p) defaultBusMap openVmMemBusId).payloadOk
+          ((1 : ℕ), [(1 : ZMod p), ptr, asg x, 0, 0, 0, base + 1]) :=
+        hyp ((1 : ℕ), [(1 : ZMod p), ptr, asg x, 0, 0, 0, base + 1]) rfl (by
+          simp [Circuit.allEffects, earlyEchoChip, bridgeRecv, bridgeSend, readEchoRecv,
+            readEchoSend, BusInteraction.eval, Expression.eval, Ne.symm hb12])
       replace hrecv0 : openVmPayloadOk defaultBusMap
         ((1 : ℕ), [(1 : ZMod p), ptr, asg x, 0, 0, 0, base + 1]) := hrecv0
       have hx : isByte (asg x) :=
@@ -408,8 +474,9 @@ theorem earlyEchoChip_hasStepLayout (hp : 3 < p) {maxWindow maxLookback : ℕ} (
       show openVmPayloadOk defaultBusMap ((1 : ℕ), [(1 : ZMod p), ptr, asg x, 0, 0, 0, base + 2])
       exact (openVmPayloadOk_mem_iff ptr (asg x) 0 0 0 (base + 2)).mpr
         ⟨hx, isByte_zero, isByte_zero, isByte_zero⟩
-    · exact absurd hmult hneg
-    · simp [earlyEchoChip, bridgeSend, openVmGuestRules, openVmExecBusId, openVmMemBusId] at hbmem
+    · exact absurd hsend.1.2 hneg
+    · simp [earlyEchoChip, bridgeSend, Circuit.memSend, Circuit.statefulSend, openVmGuestRules,
+        openVmMemBusId] at hsend
 
 /-- **The full example: legality survives a scrambled constraint list.** -/
 theorem earlyEchoChip_legalGuest (hp : 3 < p) {maxWindow maxLookback maxInteractions : ℕ}
@@ -518,7 +585,7 @@ theorem freshWriteStepChip_legalGuest (hp : 256 < p) {maxWindow maxLookback maxI
     · exact Or.inr (Or.inl rfl)
   · intro asg _ hacc
     refine ⟨⟨pcFrom, pcTo, base, 3, by norm_num, hw, ?_, ?_, ?_,
-      fun i => (i.val : ℤ), ?_, ?_⟩⟩
+      fun i => (i.val : ℤ), ?_, ?_, ?_, ?_, ?_⟩⟩
     · simp [Circuit.allEffects, freshWriteStepChip, bridgeRecv, bridgeSend, freshWriteLookup,
         freshWriteSend, BusInteraction.eval, Expression.eval, openVmGuestRules, h3]
     · simp [Circuit.allEffects, freshWriteStepChip, bridgeRecv, bridgeSend, freshWriteLookup,
@@ -542,14 +609,38 @@ theorem freshWriteStepChip_legalGuest (hp : 256 < p) {maxWindow maxLookback maxI
       · exact ⟨by push_cast; omega, by norm_num, by
           simp [freshWriteStepChip, bridgeSend, openVmGuestRules, openVmTimestamp, Circuit.msgAt,
             BusInteraction.eval, Expression.eval, openVmMemBusId, openVmExecBusId]⟩
-    · rintro i ⟨⟨hst, hmult⟩, hbmem⟩ -
+    · -- `memInteractionsUnique`: the step has a single memory interaction.
+      rintro i j hmi hmj - -
+      fin_cases i <;> fin_cases j <;>
+        first
+        | rfl
+        | (simp [freshWriteStepChip, bridgeRecv, bridgeSend, freshWriteLookup, freshWriteSend,
+            Circuit.activeMem, Circuit.activeStateful, openVmGuestRules, openVmMemBusId,
+            openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hmi; done)
+        | (simp [freshWriteStepChip, bridgeRecv, bridgeSend, freshWriteLookup, freshWriteSend,
+            Circuit.activeMem, Circuit.activeStateful, openVmGuestRules, openVmMemBusId,
+            openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hmj)
+    · -- `memSendOffsetNonneg`: offsets are list positions here.
+      rintro i -
+      exact Int.natCast_nonneg _
+    · -- `memOffsetLt`: the write sits at position `2`, inside the window.
+      rintro i hmi
+      fin_cases i <;>
+        first
+        | (simp [freshWriteStepChip, bridgeRecv, bridgeSend, freshWriteLookup, freshWriteSend,
+            Circuit.activeMem, Circuit.activeStateful, openVmGuestRules, openVmMemBusId,
+            openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hmi; done)
+        | norm_num
+    · -- `memSendsOk`: nothing is echoed here, so the hypothesis goes unused — the limb is a byte
+      -- because the chip's own bitwise lookup says so.
+      rintro - i hsend
       fin_cases i
-      · exact absurd hmult hneg
-      · simp [freshWriteStepChip, freshWriteLookup, openVmGuestRules, openVmIsStateful,
-          defaultBusMap, OpenVmBusType.isStateful] at hst
-      · -- The limb is a byte because the chip's own bitwise lookup says so.
-        have hlook : freshWriteLookup x ∈ (freshWriteStepChip x pcFrom pcTo ptr base).busInteractions
-          := by simp [freshWriteStepChip]
+      · exact absurd hsend.1.2 hneg
+      · simp [freshWriteStepChip, freshWriteLookup, Circuit.memSend, Circuit.statefulSend,
+          openVmGuestRules, openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful] at hsend
+      · have hlook : freshWriteLookup x
+            ∈ (freshWriteStepChip x pcFrom pcTo ptr base).busInteractions := by
+          simp [freshWriteStepChip]
         have hacc' := hacc (freshWriteLookup x) hlook rfl one_ne_zero
         replace hacc' : (match ((1 : ZMod p)).val with
           | 0 => isByte (asg x) ∧ isByte (asg x) ∧ ((0 : ZMod p)).val = 0
@@ -561,7 +652,5 @@ theorem freshWriteStepChip_legalGuest (hp : 256 < p) {maxWindow maxLookback maxI
           ((1 : ℕ), [(1 : ZMod p), ptr, asg x, 0, 0, 0, base + 2])
         exact (openVmPayloadOk_mem_iff ptr (asg x) 0 0 0 (base + 2)).mpr
           ⟨hacc'.1, isByte_zero, isByte_zero, isByte_zero⟩
-      · -- The bridge send is not on the memory bus, so `memSendsOk`'s own hypothesis rules this
-        -- case out.
-        simp [freshWriteStepChip, bridgeSend, openVmGuestRules, openVmExecBusId,
-          openVmMemBusId] at hbmem
+      · simp [freshWriteStepChip, bridgeSend, Circuit.memSend, Circuit.statefulSend,
+          openVmGuestRules, openVmMemBusId] at hsend
