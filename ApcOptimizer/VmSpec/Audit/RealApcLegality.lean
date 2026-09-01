@@ -3,6 +3,7 @@ import ApcOptimizer.VmSpec.Audit.SendOnlyPolarity
 import ApcOptimizer.VmSpec.Audit.BridgeCheck
 import ApcOptimizer.VmSpec.Audit.PlaceCheck
 import ApcOptimizer.VmSpec.Audit.ByteCheck
+import ApcOptimizer.VmSpec.Audit.MemSep
 import ApcOptimizer.VmSpec.Audit.OpenVmLegalAudit
 import Mathlib.Tactic.LinearCombination
 import Mathlib.Tactic.NormNum
@@ -58,8 +59,17 @@ set_option maxRecDepth 8000
     *send* sits at `from_state__timestamp_0 + 0`, i.e. exactly at the step's base. Neither fits
     the old `Circuit.advancesClock`, which demanded that memory sit strictly inside
     `(base, base + d)`; both fit `StepLayout`, which places an interaction at any integer offset
-    in `[-maxLookback, d]` and orders only the sends. That is what
-    `apc2105000Opt_hasStepLayout` exhibits, and it closes the memory half of finding G.
+    in `[-maxLookback, d]`, keeps sends inside the step's own window and asks that no two memory
+    interactions collide. That is what `apc2105000Opt_hasStepLayout` exhibits, and it closes the
+    memory half of finding G.
+
+    **The separation clauses.** `memSendsOk` speaks of messages the step *nets* a receive on, so
+    each receive has to be the only interaction carrying its message. `Audit/MemSep.lean` decides
+    that from the circuit for every pair but the five read/echo ones, whose separation is the lt
+    gadget's own lookback bound (`babyBear_offset_ne`). `apc2105000UnoptChained` cannot clear it —
+    four receive/receive pairs survive every reason, because its `writes_aux__prev_data__*_0`
+    columns are algebraically free — so its layout is proved under `UnoptChainedMemSep`, exactly
+    the separation the circuit does not force.
 
     See `agent-docs/vm-spec.md`. -/
 
@@ -88,21 +98,82 @@ theorem allEffects_eq_zero_of_mults_zero {p : ℕ} {c : Circuit p} {asg : ChipAs
   exact h bi hbi
 
 /-- **`StepLayout.memSendsOk`, from the unrestricted (all-buses) shape `ByteCheck.lean`
-    produces.** A proof of the old, cross-bus `sendsOk` is strictly more than `memSendsOk` asks
-    for, so this just plugs `memPayloadOnly` in for whichever `j` the memory-scoped hypothesis
-    doesn't cover. -/
+    produces.** `byteCheck_sendsOk` justifies a send from every interaction at a *smaller index*;
+    the clause hands over every message the step *net-receives*. A strong induction on the index
+    bridges the two: an earlier active memory interaction is either a send, settled by the
+    induction hypothesis, or a receive, which `hrecvNet` says the step nets at `-1`. Off the memory
+    bus `memPayloadOnly` settles it outright, so no hypothesis is needed there. -/
 theorem memSendsOk_of_sendsOk {p : ℕ} {r : GuestBusRules p} {c : Circuit p}
-    {asg : ChipAssignment p}
+    {asg : ChipAssignment p} (hone : (1 : ZMod p) ≠ 0)
     (hsendsOk : ∀ i : Fin c.busInteractions.length, c.statefulSend r asg i →
       (∀ j : Fin c.busInteractions.length, j < i → c.activeStateful r asg j →
-        r.payloadOk (c.msgAt asg j)) → r.payloadOk (c.msgAt asg i)) :
-    ∀ i : Fin c.busInteractions.length, c.memSend r asg i →
-      (∀ j : Fin c.busInteractions.length, j < i → c.activeMem r asg j →
-        r.payloadOk (c.msgAt asg j)) →
-      r.payloadOk (c.msgAt asg i) :=
-  fun i ⟨hsend, _⟩ hlow => hsendsOk i hsend (fun j hji hactj =>
-    if hjmem : (c.busInteractions.get j).busId = r.memBusId then hlow j hji ⟨hactj, hjmem⟩
-    else r.memPayloadOnly _ hactj.1 hjmem)
+        r.payloadOk (c.msgAt asg j)) → r.payloadOk (c.msgAt asg i))
+    (hrecvNet : ∀ i : Fin c.busInteractions.length, c.activeMem r asg i →
+      ¬ c.memSend r asg i → c.allEffects asg (c.msgAt asg i) = -1)
+    (hnet : ∀ m : BusMessage p, m.1 = r.memBusId → c.allEffects asg m = -1 → r.payloadOk m) :
+    ∀ i : Fin c.busInteractions.length, c.memSend r asg i → r.payloadOk (c.msgAt asg i) := by
+  classical
+  have key : ∀ n : ℕ, ∀ i : Fin c.busInteractions.length, i.val = n →
+      c.activeMem r asg i → r.payloadOk (c.msgAt asg i) := by
+    intro n
+    induction n using Nat.strong_induction_on with
+    | _ n ih =>
+      intro i hin hact
+      by_cases hs : c.memSend r asg i
+      · refine hsendsOk i hs.1 (fun j hji hactj => ?_)
+        by_cases hjm : (c.busInteractions.get j).busId = r.memBusId
+        · refine ih j.val ?_ j rfl ⟨hactj, hjm⟩
+          have hlt : (j : ℕ) < (i : ℕ) := hji
+          omega
+        · exact r.memPayloadOnly _ hactj.1 hjm
+      · exact hnet _ hact.2 (hrecvNet i hact hs)
+  exact fun i hi => key i.val i rfl ⟨⟨hi.1.1, by rw [hi.1.2]; exact hone⟩, hi.2⟩
+
+/-- **A memory receive nets `-1`**, once no other active interaction carries its message. This is
+    the shape `memSendsOk_of_sendsOk`'s `hrecvNet` wants, from the shape `MemSep.lean`'s checker
+    produces. -/
+theorem recvNet_of_msgSep {p : ℕ} {c : Circuit p} {r : GuestBusRules p} {asg : ChipAssignment p}
+    (hpol : c.statefulPolarity r) (halg : c.satisfiesAlgebraic asg)
+    (hsep : ∀ i j : Fin c.busInteractions.length,
+      (c.busInteractions.get i).busId = r.memBusId →
+      c.multAt asg i ≠ 0 → c.multAt asg j ≠ 0 → c.msgAt asg i = c.msgAt asg j → i = j) :
+    ∀ i : Fin c.busInteractions.length, c.activeMem r asg i → ¬ c.memSend r asg i →
+      c.allEffects asg (c.msgAt asg i) = -1 := by
+  intro i hact hns
+  have hmult : c.multAt asg i = -1 := by
+    rcases hpol asg halg _ (List.get_mem c.busInteractions i) hact.1.1 with h0 | h1 | hm1
+    · exact absurd h0 hact.1.2
+    · exact absurd ⟨⟨hact.1.1, h1⟩, hact.2⟩ hns
+    · exact hm1
+  rw [allEffects_msgAt_eq_multAt (fun j hj hmsg => (hsep i j hact.2 hact.1.2 hj hmsg.symm).symm)]
+  exact hmult
+
+/-- Two interactions carry different messages if their payloads differ at some column. -/
+theorem msgAt_ne_of_col {p : ℕ} {c : Circuit p} {asg : ChipAssignment p}
+    {i j : Fin c.busInteractions.length} (col : ℕ)
+    (h : (c.msgAt asg i).2.getD col 0 ≠ (c.msgAt asg j).2.getD col 0) :
+    c.msgAt asg i ≠ c.msgAt asg j :=
+  fun he => h (congrArg (fun m => m.2.getD col 0) he)
+
+/-- **Distinct offsets name distinct timestamps.** A step's offsets live in `[-2 ^ 29, 11]`, a
+    window far narrower than `babyBear`, so the integer cast is injective on it — which is what
+    separates a memory receive at its lt gadget's lookback from the send that echoes it. -/
+theorem babyBear_offset_ne {x y t : ZMod babyBear} {a b : ℤ}
+    (hx : x = t + ((a : ℤ) : ZMod babyBear)) (hy : y = t + ((b : ℤ) : ZMod babyBear))
+    (ha : -(2 ^ 29 : ℤ) ≤ a) (ha' : a ≤ 11) (hb : -(2 ^ 29 : ℤ) ≤ b) (hb' : b ≤ 11)
+    (hne : a ≠ b) : x ≠ y := by
+  have hp29 : (2 : ℤ) ^ 29 = 536870912 := by norm_num
+  have hbb : ((babyBear : ℕ) : ℤ) = 2013265921 := by norm_num [babyBear]
+  rw [hx, hy]
+  intro h
+  have hz : ((a - b : ℤ) : ZMod babyBear) = 0 := by push_cast; linear_combination h
+  have hdvd := (ZMod.intCast_zmod_eq_zero_iff_dvd (a - b) babyBear).mp hz
+  rcases lt_trichotomy a b with h1 | h1 | h1
+  · have := Int.le_of_dvd (by omega) ((dvd_neg).mpr hdvd)
+    omega
+  · exact hne h1
+  · have := Int.le_of_dvd (by omega) hdvd
+    omega
 
 --------- The gadgets a placement is read off ---------
 
@@ -277,14 +348,17 @@ def optOffsets (n0 nw0 nr1 nw1 nr3 : ℕ) : List ℤ :=
   [-1 - (n0 : ℤ), 0, 1 - nw0, 0, 2 - nr1, 4 - nw1, 5, 0, 6, 9, 9 - nr3, 10, 11]
 
 /-- The largest offset each position can hold: a receive's is `δ - n` for a lookback `n ≥ 0`, so
-    `δ` bounds it; the six sends attain their entry exactly. -/
+    `δ` bounds it; the six sends attain their entry exactly, which is what `optSendUb` reads. -/
 def optOffsetUb : List ℤ := [-1, 0, 1, 0, 2, 4, 5, 0, 6, 9, 9, 10, 11]
 
-/-- Each of the six sends dominates every position before it. With `optOffsetUb` this is the whole
-    of `StepLayout.ordered` for this circuit — a `decide` over positions, which is what stating the
-    layout in integer offsets rather than field timestamps buys. -/
-theorem optOffsetUb_dominates :
-    ∀ b ∈ [1, 6, 8, 9, 11, 12], ∀ k < b, optOffsetUb.getD k 0 < optOffsetUb.getD b 0 := by decide
+/-- `StepLayout.memSendOffsetNonneg`, as a fact about the six send positions. -/
+theorem optSendUb : ∀ b ∈ [1, 6, 8, 9, 11, 12], (0 : ℤ) ≤ optOffsetUb.getD b 0 := by decide
+
+/-- `StepLayout.memOffsetLt`: only the bridge send sits at the window's end, and it is not on the
+    memory bus. -/
+theorem optMemUb : ∀ i : Fin apc2105000Opt.busInteractions.length,
+    (apc2105000Opt.busInteractions.get i).busId = openVmMemBusId →
+      optOffsetUb.getD i.val 0 < 11 := by decide
 
 /-- The variables the optimized APC's stateful payloads and lt gadgets mention: the step's base,
     the branch flag the outgoing `pc` depends on, and each gadget's `prev_timestamp` and low
@@ -319,6 +393,11 @@ theorem optPinRules_hold (asg : ChipAssignment babyBear)
   intro q hq
   obtain ⟨con, hcon, hpin⟩ := List.mem_filterMap.mp hq
   exact pinRuleOf_eval (by rw [hpin]) (halg con hcon)
+
+/-- `MemSep.lean` names the same list; its checks are stated against that name. -/
+theorem optSepRules_hold (asg : ChipAssignment babyBear)
+    (halg : apc2105000Opt.satisfiesAlgebraic asg) : ∀ q ∈ optSepRules, q.1.eval asg = q.2 :=
+  optPinRules_hold asg halg
 
 /-- **The bridge half of the layout, by static analysis.** No case analysis over the circuit is
     written by hand: `bridgeCheck` normalizes the two bus-`0` payloads, sees the receive first and
@@ -455,8 +534,72 @@ theorem apc2105000Opt_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWindow) :
         Expression.eval, babyBear_negOne_ne_one]
   -- The bridge, by static analysis: `optBridgeCheck` is a `decide`.
   obtain ⟨hrecv, hsend, hother⟩ := bridgeCheck_sound optBridgeCheck (optPinRules_hold asg halg)
+  -- Each memory receive is the only interaction carrying its message, so the step nets it at
+  -- `-1` — the form `memSendsOk`'s hypothesis is stated in. Every other memory position holds a
+  -- different literal address (`optMsgSep`); the five read/echo pairs that share one are separated
+  -- by the lt gadget's own lookback bound, which puts the receive strictly before the send.
+  have hmsgSep : ∀ i j : Fin apc2105000Opt.busInteractions.length,
+      (apc2105000Opt.busInteractions.get i).busId = openVmMemBusId →
+      apc2105000Opt.multAt asg i ≠ 0 → apc2105000Opt.multAt asg j ≠ 0 →
+      apc2105000Opt.msgAt asg i = apc2105000Opt.msgAt asg j → i = j := by
+    have h01 : apc2105000Opt.msgAt asg ⟨0, by decide⟩ ≠ apc2105000Opt.msgAt asg ⟨1, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"reads_aux__0__base__prev_timestamp_0", some 6⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩
+        exact babyBear_offset_ne (b := 0) ht0 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    have h28 : apc2105000Opt.msgAt asg ⟨2, by decide⟩ ≠ apc2105000Opt.msgAt asg ⟨8, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"writes_aux__base__prev_timestamp_0", some 12⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩ + 6
+        exact babyBear_offset_ne (b := 6) htw0 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    have h49 : apc2105000Opt.msgAt asg ⟨4, by decide⟩ ≠ apc2105000Opt.msgAt asg ⟨9, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"reads_aux__0__base__prev_timestamp_1", some 42⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩ + 9
+        exact babyBear_offset_ne (b := 9) htr1 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    have h56 : apc2105000Opt.msgAt asg ⟨5, by decide⟩ ≠ apc2105000Opt.msgAt asg ⟨6, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"writes_aux__base__prev_timestamp_1", some 48⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩ + 5
+        exact babyBear_offset_ne (b := 5) htw1 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    have hab : apc2105000Opt.msgAt asg ⟨10, by decide⟩ ≠ apc2105000Opt.msgAt asg ⟨11, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"reads_aux__1__base__prev_timestamp_3", some 115⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩ + 10
+        exact babyBear_offset_ne (b := 10) htr3 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    refine msgSep_of_sepAllBut (optSepRules_hold asg halg) optMsgSep ?_
+    intro i j hij _
+    simp only [optExempt, List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hij
+    obtain ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ |
+      ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ := hij
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨0, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨1, by decide⟩)]
+      exact h01
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨1, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨0, by decide⟩)]
+      exact h01.symm
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨2, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨8, by decide⟩)]
+      exact h28
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨8, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨2, by decide⟩)]
+      exact h28.symm
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨4, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨9, by decide⟩)]
+      exact h49
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨9, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨4, by decide⟩)]
+      exact h49.symm
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨5, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨6, by decide⟩)]
+      exact h56
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨6, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨5, by decide⟩)]
+      exact h56.symm
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨10, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨11, by decide⟩)]
+      exact hab
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨11, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨10, by decide⟩)]
+      exact hab.symm
+  have hrecvNet := recvNet_of_msgSep apc2105000Opt_legalMultiplicities.2 halg hmsgSep
   refine ⟨_, _, _, 11, by norm_num, hw, hrecv, hsend, hother,
-    fun i => (optOffsets n0 nw0 nr1 nw1 nr3).getD i.val 0, ?_, ?_⟩
+    fun i => (optOffsets n0 nw0 nr1 nw1 nr3).getD i.val 0, ?_, ?_, ?_, ?_, ?_⟩
   · -- The placement, offset by offset.
     rintro i ⟨hst, hm⟩
     fin_cases i
@@ -515,23 +658,22 @@ theorem apc2105000Opt_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWindow) :
     all_goals
       simp [apc2105000Opt, apcRules, openVmGuestRules, openVmIsStateful, defaultBusMap,
         OpenVmBusType.isStateful] at hst
-  · -- The byte invariant, by static analysis: only the masked write is left by hand. What used to
-    -- be `memOrdered` (`optOffsetUb_dominates`) is inlined here, converting the caller's
-    -- `place`-ordered hypothesis into the index order `byteCheck_sendsOk` expects.
-    intro i hsend hlow
-    have hordered : ∀ j : Fin apc2105000Opt.busInteractions.length, j < i →
-        apc2105000Opt.activeMem apcRules asg j →
-        apcRules.payloadOk (apc2105000Opt.msgAt asg j) := by
-      intro j hji hactj
-      obtain ⟨hmem, heq⟩ := hsendIdx i hsend.1.1 hsend.1.2
-      refine hlow j ?_ hactj
-      show (optOffsets n0 nw0 nr1 nw1 nr3).getD j.val 0
-        < (optOffsets n0 nw0 nr1 nw1 nr3).getD i.val 0
-      rw [heq]
-      exact lt_of_le_of_lt (hub j hactj.1.1 hactj.1.2)
-        (optOffsetUb_dominates i.val hmem j.val (Fin.lt_def.mp hji))
-    refine memSendsOk_of_sendsOk (byteCheck_sendsOk (optPinRules_hold asg halg) optByteCheck ?_)
-      i hsend hordered
+  · -- `memInteractionsUnique`, straight off `MemSep.lean`'s equal-multiplicity checker.
+    exact memInteractionsUnique_of_sep (optSepRules_hold asg halg) optMemSep
+  · -- `memSendOffsetNonneg`: a send sits exactly at its `optOffsetUb` entry, and all six are `≥ 0`.
+    rintro i ⟨⟨hst, hm⟩, -⟩
+    obtain ⟨hmem, heq⟩ := hsendIdx i hst hm
+    show (0 : ℤ) ≤ (optOffsets n0 nw0 nr1 nw1 nr3).getD i.val 0
+    rw [heq]
+    exact optSendUb i.val hmem
+  · -- `memOffsetLt`: only the bridge send sits at the window's end, and it is not memory.
+    rintro i ⟨⟨hst, hm⟩, hbmem⟩
+    exact lt_of_le_of_lt (hub i hst hm) (by exact_mod_cast optMemUb i hbmem)
+  · -- The byte invariant, by static analysis: only the masked write is left by hand. Each echoing
+    -- send draws its record from the step's own net receive (`hrecvNet`) rather than from an
+    -- offset-ordered predecessor.
+    refine memSendsOk_of_sendsOk (by decide)
+      (byteCheck_sendsOk (optPinRules_hold asg halg) optByteCheck ?_) hrecvNet
     intro i hi hsend hlow
     fin_cases i
     all_goals try exact absurd hi (by decide)
@@ -634,6 +776,17 @@ theorem gatedPinRules_hold (asg : ChipAssignment babyBear)
   intro q hq
   obtain ⟨con, hcon, hpin⟩ := List.mem_filterMap.mp hq
   exact pinRuleOf_eval (by rw [hpin]) (halg con hcon)
+
+/-- `MemSep.lean` names the same list; its checks are stated against that name. -/
+theorem gatedSepRules_hold (asg : ChipAssignment babyBear)
+    (halg : apc2105000GatedPinned.satisfiesAlgebraic asg) :
+    ∀ q ∈ gatedSepRules, q.1.eval asg = q.2 :=
+  gatedPinRules_hold asg halg
+
+/-- `StepLayout.memOffsetLt` for the gated APC: same interactions, same bound. -/
+theorem gatedMemUb : ∀ i : Fin apc2105000GatedPinned.busInteractions.length,
+    (apc2105000GatedPinned.busInteractions.get i).busId = openVmMemBusId →
+      optOffsetUb.getD i.val 0 < 11 := by decide
 
 theorem gatedIsValid {asg : ChipAssignment babyBear}
     (halg : apc2105000GatedPinned.satisfiesAlgebraic asg) :
@@ -805,8 +958,75 @@ theorem apc2105000GatedPinned_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWind
         BusInteraction.eval, Expression.eval, babyBear_negOne_ne_one]
   -- The bridge, by static analysis: `gatedBridgeCheck` is a `decide`.
   obtain ⟨hrecv, hsend, hother⟩ := bridgeCheck_sound gatedBridgeCheck (gatedPinRules_hold asg halg)
+  -- Each memory receive is the only interaction carrying its message (see
+  -- `apc2105000Opt_hasStepLayout`, same traffic).
+  have hmsgSep : ∀ i j : Fin apc2105000GatedPinned.busInteractions.length,
+      (apc2105000GatedPinned.busInteractions.get i).busId = openVmMemBusId →
+      apc2105000GatedPinned.multAt asg i ≠ 0 → apc2105000GatedPinned.multAt asg j ≠ 0 →
+      apc2105000GatedPinned.msgAt asg i = apc2105000GatedPinned.msgAt asg j → i = j := by
+    have h01 : apc2105000GatedPinned.msgAt asg ⟨0, by decide⟩
+        ≠ apc2105000GatedPinned.msgAt asg ⟨1, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"reads_aux__0__base__prev_timestamp_0", some 6⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩
+        exact babyBear_offset_ne (b := 0) ht0 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    have h28 : apc2105000GatedPinned.msgAt asg ⟨2, by decide⟩
+        ≠ apc2105000GatedPinned.msgAt asg ⟨8, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"writes_aux__base__prev_timestamp_0", some 12⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩ + 6
+        exact babyBear_offset_ne (b := 6) htw0 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    have h49 : apc2105000GatedPinned.msgAt asg ⟨4, by decide⟩
+        ≠ apc2105000GatedPinned.msgAt asg ⟨9, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"reads_aux__0__base__prev_timestamp_1", some 42⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩ + 9
+        exact babyBear_offset_ne (b := 9) htr1 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    have h56 : apc2105000GatedPinned.msgAt asg ⟨5, by decide⟩
+        ≠ apc2105000GatedPinned.msgAt asg ⟨6, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"writes_aux__base__prev_timestamp_1", some 48⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩ + 5
+        exact babyBear_offset_ne (b := 5) htw1 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    have hab : apc2105000GatedPinned.msgAt asg ⟨10, by decide⟩
+        ≠ apc2105000GatedPinned.msgAt asg ⟨11, by decide⟩ :=
+      msgAt_ne_of_col 6 (by
+        show asg ⟨"reads_aux__1__base__prev_timestamp_3", some 115⟩
+          ≠ asg ⟨"from_state__timestamp_0", some 1⟩ + 10
+        exact babyBear_offset_ne (b := 10) htr3 (by push_cast; ring) (by omega) (by omega) (by norm_num)
+          (by norm_num) (by omega))
+    refine msgSep_of_sepAllBut (gatedSepRules_hold asg halg) gatedMsgSep ?_
+    intro i j hij _
+    simp only [optExempt, List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hij
+    obtain ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ |
+      ⟨hi, hj⟩ | ⟨hi, hj⟩ | ⟨hi, hj⟩ := hij
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨0, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨1, by decide⟩)]
+      exact h01
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨1, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨0, by decide⟩)]
+      exact h01.symm
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨2, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨8, by decide⟩)]
+      exact h28
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨8, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨2, by decide⟩)]
+      exact h28.symm
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨4, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨9, by decide⟩)]
+      exact h49
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨9, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨4, by decide⟩)]
+      exact h49.symm
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨5, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨6, by decide⟩)]
+      exact h56
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨6, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨5, by decide⟩)]
+      exact h56.symm
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨10, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨11, by decide⟩)]
+      exact hab
+    · rw [(Fin.eq_of_val_eq hi : i = ⟨11, by decide⟩), (Fin.eq_of_val_eq hj : j = ⟨10, by decide⟩)]
+      exact hab.symm
+  have hrecvNet := recvNet_of_msgSep apc2105000GatedPinned_legalMultiplicities.2 halg hmsgSep
   refine ⟨_, _, _, 11, by norm_num, hw, hrecv, hsend, hother,
-    fun i => (optOffsets n0 nw0 nr1 nw1 nr3).getD i.val 0, ?_, ?_⟩
+    fun i => (optOffsets n0 nw0 nr1 nw1 nr3).getD i.val 0, ?_, ?_, ?_, ?_, ?_⟩
   · -- The placement, offset by offset.
     rintro i ⟨hst, hm⟩
     fin_cases i
@@ -875,23 +1095,20 @@ theorem apc2105000GatedPinned_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWind
     all_goals
       simp [apc2105000GatedPinned, apc2105000Gated, apcRules, openVmGuestRules, openVmIsStateful,
         defaultBusMap, OpenVmBusType.isStateful] at hst
-  · -- The byte invariant, by static analysis: only the masked write is left by hand. What used to
-    -- be `memOrdered` (`optOffsetUb_dominates`) is inlined here, converting the caller's
-    -- `place`-ordered hypothesis into the index order `byteCheck_sendsOk` expects.
-    intro i hsend hlow
-    have hordered : ∀ j : Fin apc2105000GatedPinned.busInteractions.length, j < i →
-        apc2105000GatedPinned.activeMem apcRules asg j →
-        apcRules.payloadOk (apc2105000GatedPinned.msgAt asg j) := by
-      intro j hji hactj
-      obtain ⟨hmem, heq⟩ := hsendIdx i hsend.1.1 hsend.1.2
-      refine hlow j ?_ hactj
-      show (optOffsets n0 nw0 nr1 nw1 nr3).getD j.val 0
-        < (optOffsets n0 nw0 nr1 nw1 nr3).getD i.val 0
-      rw [heq]
-      exact lt_of_le_of_lt (hub j hactj.1.1 hactj.1.2)
-        (optOffsetUb_dominates i.val hmem j.val (Fin.lt_def.mp hji))
-    refine memSendsOk_of_sendsOk (byteCheck_sendsOk (gatedPinRules_hold asg halg) gatedByteCheck ?_)
-      i hsend hordered
+  · -- `memInteractionsUnique`, straight off `MemSep.lean`'s equal-multiplicity checker.
+    exact memInteractionsUnique_of_sep (gatedSepRules_hold asg halg) gatedMemSep
+  · -- `memSendOffsetNonneg`.
+    rintro i ⟨⟨hst, hm⟩, -⟩
+    obtain ⟨hmem, heq⟩ := hsendIdx i hst hm
+    show (0 : ℤ) ≤ (optOffsets n0 nw0 nr1 nw1 nr3).getD i.val 0
+    rw [heq]
+    exact optSendUb i.val hmem
+  · -- `memOffsetLt`.
+    rintro i ⟨⟨hst, hm⟩, hbmem⟩
+    exact lt_of_le_of_lt (hub i hst hm) (by exact_mod_cast gatedMemUb i hbmem)
+  · -- The byte invariant, by static analysis: only the masked write is left by hand.
+    refine memSendsOk_of_sendsOk (by decide)
+      (byteCheck_sendsOk (gatedPinRules_hold asg halg) gatedByteCheck ?_) hrecvNet
     intro i hi hsend hlow
     fin_cases i
     all_goals try exact absurd hi (by decide)
@@ -1846,20 +2063,43 @@ theorem unoptByteCheck :
     byteCheckAll unoptByteVars unoptPinRules apc2105000UnoptChained.busInteractions unoptWitnesses
       = true := by decide
 
+/-- **What `apc2105000UnoptChained` does not force.** `MemSep.lean`'s checker leaves four
+    receive/receive pairs — `(15, 47)` at address `52`, and `(27, 55)`, `(27, 62)`, `(55, 62)` at
+    address `44` — and they are not merely unproven: each `*_prev_timestamp_*` is bounded only
+    below its own access by its own lt gadget, their reachable windows overlap, and
+    `writes_aux__prev_data__*_0` occurs in *zero* algebraic constraints. So from any satisfying
+    assignment, setting both prev-timestamps to a common in-range tick and the free `prev_data`
+    columns to the other receive's data yields another satisfying assignment in which two distinct
+    interactions carry the identical message at multiplicity `-1`.
+
+    The stage `039` circuit escapes only because powdr deduplicated those accesses. Rather than
+    weaken the clause until this circuit fits — it is under-constrained *as a standalone chip*, its
+    free `prev_data` columns able to impersonate any data tuple — the separation is taken as a
+    hypothesis here, so that everything else about this circuit's layout stays measured. See
+    `agent-docs/vm-spec.md`. -/
+def UnoptChainedMemSep : Prop :=
+  ∀ asg : ChipAssignment babyBear, apc2105000UnoptChained.satisfiesAlgebraic asg →
+    ∀ i j : Fin apc2105000UnoptChained.busInteractions.length,
+      (apc2105000UnoptChained.busInteractions.get i).busId = apcRules.memBusId →
+      apc2105000UnoptChained.multAt asg i ≠ 0 → apc2105000UnoptChained.multAt asg j ≠ 0 →
+      apc2105000UnoptChained.msgAt asg i = apc2105000UnoptChained.msgAt asg j → i = j
+
 /-- **`StepLayout.memSendsOk`, by static analysis.** `byteCheckAll` accounts for every echoed
     read and every interaction that isn't a genuine memory send; the three ALU writes are left to
     the caller, closed by `unoptWriteIsByte_0/1/2`. -/
-theorem apc2105000UnoptChained_memSendsOk {asg : ChipAssignment babyBear}
+theorem apc2105000UnoptChained_memSendsOk (hsep : UnoptChainedMemSep)
+    {asg : ChipAssignment babyBear}
     (halg : apc2105000UnoptChained.satisfiesAlgebraic asg)
     (hacc : apc2105000UnoptChained.satisfiesStateless apcRules asg) :
+    (∀ m : BusMessage babyBear, m.1 = apcRules.memBusId →
+        apc2105000UnoptChained.allEffects asg m = -1 → apcRules.payloadOk m) →
     ∀ i : Fin apc2105000UnoptChained.busInteractions.length,
       apc2105000UnoptChained.memSend apcRules asg i →
-      (∀ j : Fin apc2105000UnoptChained.busInteractions.length, j < i →
-        apc2105000UnoptChained.activeMem apcRules asg j →
-        apcRules.payloadOk (apc2105000UnoptChained.msgAt asg j)) →
       apcRules.payloadOk (apc2105000UnoptChained.msgAt asg i) := by
   haveI : Fact (1 < babyBear) := ⟨by decide⟩
-  refine memSendsOk_of_sendsOk (byteCheck_sendsOk (unoptPinRules_hold asg halg) unoptByteCheck ?_)
+  refine memSendsOk_of_sendsOk (by decide)
+    (byteCheck_sendsOk (unoptPinRules_hold asg halg) unoptByteCheck ?_)
+    (recvNet_of_msgSep apc2105000UnoptChained_legalMultiplicities.2 halg (hsep asg halg))
   intro i hi hsend hlow
   fin_cases i
   all_goals try exact absurd hi (by decide)
@@ -1879,15 +2119,15 @@ theorem apc2105000UnoptChained_memSendsOk {asg : ChipAssignment babyBear}
       asg ⟨"a__3_2", some 94⟩, asg ⟨"from_state__timestamp_2", some 73⟩ + 2])
     exact (openVmPayloadOk_mem_iff _ _ _ _ _ _).mpr ⟨h0, h1, h2, h3⟩
 
---------- The unoptimized APC, timestamps chained: the ordering ---------
+--------- The unoptimized APC, timestamps chained: the offsets ---------
 
 /-- Where each of `apc2105000UnoptChained`'s `71` interactions sits, as an upper bound on its
     offset from `from_state__timestamp_0`: the four fused steps' local offsets (mirroring
     `apc2105000Opt`'s `optOffsetUb`, one memory gadget's receive/send pair per instruction, two
     for the branch's `rs1`/`rs2`), shifted by each instruction's own `3`-tick advance
     (`chainedTimes`). Stateless positions, and the inactive `rs2` gadgets `rs2_as_i = 0` disables,
-    get a placeholder far below every real offset — the domination check below never reads
-    them for anything but a `<`, and they are never `activeStateful` either way. -/
+    get a placeholder far below every real offset — `unoptSendUb`/`unoptMemUb` never read them, and
+    they are never `activeStateful` either way. -/
 def unoptOffsetUb : List ℤ :=
   -- instr 0 (shift 0)
   [-1000, -1000, -1000, -1000, -1000, -1000, -1000, -1, 0, -1000, -1000, -1000, -1000, -1000,
@@ -1901,14 +2141,14 @@ def unoptOffsetUb : List ℤ :=
   -- instr 3 / branch (shift 9)
   [-1000, -1000, 8, 9, -1000, -1000, 9, 10, -1000, -1000, -1000]
 
-/-- Each of `apc2105000UnoptChained`'s eight memory sends dominates every position before it —
-    the ordering fact `memSendsOk` needs for this circuit, `decide` over `71` positions. Unlike
-    `apc2105000Opt`, several sends share an upper bound with an *earlier, different* send's own
-    predecessor (e.g. positions `36` and `47` both cap out at `5`) — harmless, since domination is
-    only ever asked of a send against what precedes *it*, never between two unrelated positions. -/
-theorem unoptOffsetUb_dominates :
-    ∀ b ∈ [8, 16, 28, 36, 48, 56, 63, 67], ∀ k < b, unoptOffsetUb.getD k 0 < unoptOffsetUb.getD b 0 := by
-  decide
+/-- `StepLayout.memSendOffsetNonneg`, as a fact about the eight send positions. -/
+theorem unoptSendUb :
+    ∀ b ∈ [8, 16, 28, 36, 48, 56, 63, 67], (0 : ℤ) ≤ unoptOffsetUb.getD b 0 := by decide
+
+/-- `StepLayout.memOffsetLt`: every memory position caps out below the fused window's end. -/
+theorem unoptMemUb : ∀ i : Fin apc2105000UnoptChained.busInteractions.length,
+    (apc2105000UnoptChained.busInteractions.get i).busId = openVmMemBusId →
+      unoptOffsetUb.getD i.val 0 < 11 := by decide
 
 /-- The exact offset each of `apc2105000UnoptChained`'s `71` interactions sits at, mirroring
     `unoptOffsetUb`'s shape but with each memory receive's real lookback (`δ - n`, from the eight
@@ -1934,14 +2174,14 @@ set_option linter.unnecessarySeqFocus false in
 /-- **A chained-but-unoptimized APC has a step layout.** `d = 11`, matching `apc2105000Opt`'s own
     arc: the four fused instructions' local `3`/`3`/`3`/`2`-tick advances, chained by
     `apc2105000UnoptChained_bridge`. Every one of the `71` interactions is placed by
-    `unoptOffsets`, the eight memory sends dominate what precedes them (`unoptOffsetUb_dominates`),
-    and `apc2105000UnoptChained_memSendsOk` closes the byte invariant.
+    `unoptOffsets`, and `apc2105000UnoptChained_memSendsOk` closes the byte invariant.
 
     This is what `memSendsOk`'s restriction to the memory bus buys over the old cross-bus
     `ordered`: the bridge-round-trip-vs-echo timestamp collision that made this circuit fail the
     old `ordered` (two unrelated instructions' own bookkeeping landing on the same field
     timestamp) never enters a memory-vs-memory comparison, so it is not a counterexample here. -/
-theorem apc2105000UnoptChained_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWindow) :
+theorem apc2105000UnoptChained_hasStepLayout (hsep : UnoptChainedMemSep) {maxWindow : ℕ}
+    (hw : 11 < maxWindow) :
     apc2105000UnoptChained.hasStepLayout apcRules maxWindow openVmTimestampBound := by
   haveI : Fact (1 < babyBear) := ⟨by decide⟩
   intro asg halg hacc
@@ -1980,7 +2220,7 @@ theorem apc2105000UnoptChained_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWin
         openVmGuestRules, openVmIsStateful, defaultBusMap, openVmMemBusId,
         OpenVmBusType.isStateful, BusInteraction.eval, Expression.eval, babyBear_negOne_ne_one]
   refine ⟨_, _, _, 11, by norm_num, hw, hrecv, hsend, hother,
-    fun i => (unoptOffsets nr10 nw0 nr11 nw1 nr12 nw2 nr13 nr23).getD i.val 0, ?_, ?_⟩
+    fun i => (unoptOffsets nr10 nw0 nr11 nw1 nr12 nw2 nr13 nr23).getD i.val 0, ?_, ?_, ?_, ?_, ?_⟩
   · -- The placement, offset by offset: `30` genuinely stateful positions (memory or bridge),
     -- read off directly; every other position is either stateless or a structurally inactive
     -- `rs2` gadget (`rs2_as_i = 0`, so its multiplicity can never be nonzero).
@@ -2122,24 +2362,25 @@ theorem apc2105000UnoptChained_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWin
         by simp [unoptOffsets, apc2105000UnoptChained, apc2105000Unopt, BusInteraction.eval,
           Expression.eval, apcRules, openVmGuestRules, openVmTimestamp, Circuit.msgAt,
           openVmMemBusId, openVmExecBusId, ht01, ht12, ht23] <;> ring⟩
-  · -- The byte invariant: `apc2105000UnoptChained_memSendsOk`, by static analysis. What used to be
-    -- `memOrdered` (`unoptOffsetUb_dominates`) is inlined here, converting the caller's
-    -- `place`-ordered hypothesis into the index order that theorem expects.
-    intro i hsend hlow
-    refine apc2105000UnoptChained_memSendsOk halg hacc i hsend (fun j hji hactj => ?_)
-    obtain ⟨hmem, heq⟩ := hsendIdx i hsend.1.1 hsend.2 hsend.1.2
-    refine hlow j ?_ hactj
-    show (unoptOffsets nr10 nw0 nr11 nw1 nr12 nw2 nr13 nr23).getD j.val 0
-      < (unoptOffsets nr10 nw0 nr11 nw1 nr12 nw2 nr13 nr23).getD i.val 0
+  · -- `memInteractionsUnique`, from the assumed separation.
+    exact fun i j hi hj hmsg _ => hsep asg halg i j hi.2 hi.1.2 hj.1.2 hmsg
+  · -- `memSendOffsetNonneg`: a send sits exactly at its `unoptOffsetUb` entry, all eight `≥ 0`.
+    rintro i ⟨⟨hst, hm⟩, hbmem⟩
+    obtain ⟨hmem, heq⟩ := hsendIdx i hst hbmem hm
+    show (0 : ℤ) ≤ (unoptOffsets nr10 nw0 nr11 nw1 nr12 nw2 nr13 nr23).getD i.val 0
     rw [heq]
-    exact lt_of_le_of_lt (hub j hactj.1.1 hactj.2 hactj.1.2)
-      (unoptOffsetUb_dominates i.val hmem j.val (Fin.lt_def.mp hji))
+    exact unoptSendUb i.val hmem
+  · -- `memOffsetLt`: the fused window ends at `11`, past every memory position's bound.
+    rintro i ⟨⟨hst, hm⟩, hbmem⟩
+    exact lt_of_le_of_lt (hub i hst hbmem hm) (by exact_mod_cast unoptMemUb i hbmem)
+  · -- The byte invariant: `apc2105000UnoptChained_memSendsOk`, by static analysis.
+    exact apc2105000UnoptChained_memSendsOk hsep halg hacc
 
-theorem apc2105000UnoptChained_legalGuest {maxWindow maxInteractions : ℕ} (hw : 11 < maxWindow)
-    (hi : 71 ≤ maxInteractions) :
+theorem apc2105000UnoptChained_legalGuest (hsep : UnoptChainedMemSep) {maxWindow maxInteractions : ℕ}
+    (hw : 11 < maxWindow) (hi : 71 ≤ maxInteractions) :
     apc2105000UnoptChained.legalGuest apcRules maxWindow openVmTimestampBound
       maxInteractions where
   sendOnly := apc2105000UnoptChained_legalMultiplicities.1
   polarity := apc2105000UnoptChained_legalMultiplicities.2
-  stepLayout := apc2105000UnoptChained_hasStepLayout hw
+  stepLayout := apc2105000UnoptChained_hasStepLayout hsep hw
   size := by simpa [apc2105000UnoptChained, apc2105000Unopt] using hi
