@@ -444,7 +444,7 @@ private theorem checkedStepChip_legalGuest [Fact p.Prime] (hp : 18 < p)
         BusInteraction.eval, Expression.eval, openVmExecBusId]
   · -- One step, `(0, 0) → (0, 1)`, with each interaction's offset its own position in the list.
     intro asg _ _
-    refine ⟨⟨0, 0, 0, 1, by norm_num, hw, ?_, ?_, ?_, fun i => (i.val : ℤ), ?_, ?_⟩⟩
+    refine ⟨⟨0, 0, 0, 1, by norm_num, hw, ?_, ?_, ?_, fun i => (i.val : ℤ), ?_, ?_, ?_, ?_, ?_⟩⟩
     · simp [Circuit.allEffects, checkedStepChip, BusInteraction.eval, Expression.eval,
         openVmGuestRules, openVmExecBusId]
     · simp [Circuit.allEffects, checkedStepChip, BusInteraction.eval, Expression.eval,
@@ -467,8 +467,18 @@ private theorem checkedStepChip_legalGuest [Fact p.Prime] (hp : 18 < p)
             BusInteraction.eval, Expression.eval, openVmExecBusId, openVmMemBusId]⟩
       · simp [checkedStepChip, openVmGuestRules, openVmIsStateful, defaultBusMap,
           OpenVmBusType.isStateful, rangeBusId] at hst
-    · -- `checkedStepChip` never touches the memory bus, so `memSendsOk` is vacuous.
-      exact fun i ⟨_, hbmem⟩ _ => by
+    · -- `checkedStepChip` never touches the memory bus, so every memory clause is vacuous.
+      exact fun i _ ⟨_, hbmem⟩ _ _ _ => by
+        fin_cases i <;>
+          simp [checkedStepChip, openVmGuestRules, openVmExecBusId, openVmMemBusId,
+            rangeBusId] at hbmem
+    · -- Offsets are list positions here, so a send's is nonnegative outright.
+      exact fun i _ => Int.natCast_nonneg _
+    · exact fun i ⟨_, hbmem⟩ => by
+        fin_cases i <;>
+          simp [checkedStepChip, openVmGuestRules, openVmExecBusId, openVmMemBusId,
+            rangeBusId] at hbmem
+    · exact fun _ i ⟨_, hbmem⟩ => by
         fin_cases i <;>
           simp [checkedStepChip, openVmGuestRules, openVmExecBusId, openVmMemBusId,
             rangeBusId] at hbmem
