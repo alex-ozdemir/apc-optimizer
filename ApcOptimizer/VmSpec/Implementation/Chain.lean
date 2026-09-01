@@ -281,4 +281,131 @@ theorem Chain.arc_position (C : Chain p E M) (e : E) (he : e ≠ C.conn) :
     rw [← h3, C.time_conn, add_assoc, ← Nat.cast_add, Nat.sub_add_cancel h2]
   exact (add_right_cancel hcancel).symm
 
+--------- One walk covers the run, so arcs occupy disjoint slots ---------
+
+/-- Two positions inside the run that agree in the field agree as naturals: the run is too short
+    to wrap. -/
+theorem Chain.eq_of_natCast_eq (C : Chain p E M) {a b : ℕ} (ha : a ≤ C.total) (hb : b ≤ C.total)
+    (h : ((a : ℕ) : ZMod p) = ((b : ℕ) : ZMod p)) : a = b := by
+  rcases Nat.le_total a b with hab | hab
+  · have hd : ((b - a : ℕ) : ZMod p) = 0 := by rw [Nat.cast_sub hab, h, sub_self]
+    have := natCast_eq_zero_of_lt
+      (lt_of_le_of_lt (le_trans (Nat.sub_le _ _) hb) C.total_lt) hd
+    omega
+  · have hd : ((a - b : ℕ) : ZMod p) = 0 := by rw [Nat.cast_sub hab, h, sub_self]
+    have := natCast_eq_zero_of_lt
+      (lt_of_le_of_lt (le_trans (Nat.sub_le _ _) ha) C.total_lt) hd
+    omega
+
+/-- The arc the connector hands the clock to: the run's first step. -/
+noncomputable def Chain.first (C : Chain p E M) : E := C.succ C.conn
+
+theorem Chain.src_first (C : Chain p E M) : C.src C.first = C.dst C.conn := C.succ_spec C.conn
+
+/-- A stretch of a walk with distinct arcs advances by at most the run's total. -/
+theorem Chain.walkSum_le_total (C : Chain p E M) (e : E) {k : ℕ}
+    (hinj : ∀ a < k, ∀ b < k, C.walk e a = C.walk e b → a = b) :
+    C.walkSum e k ≤ C.total := by
+  rw [Chain.walkSum, Finset.range_eq_Ico]
+  exact C.sum_Ico_le_total e (fun a ha b hb hab =>
+    hinj a (Finset.mem_Ico.mp ha).2 b (Finset.mem_Ico.mp hb).2 hab)
+
+/-- **One walk covers every arc.** Walking from `first` back to the connector advances the clock by
+    the run's *whole* total — the connector's own reading pins it — and that walk's arcs are
+    distinct. Since every non-connector arc advances strictly, no arc can be left off the walk
+    without the totals disagreeing.
+
+    This is what rules out a run whose arcs form several parallel strands: balance alone permits
+    them, the advance budget does not. -/
+theorem Chain.walk_covering (C : Chain p E M) :
+    ∃ k : ℕ, (∀ j < k, C.walk C.first j ≠ C.conn) ∧
+      (∀ a < k, ∀ b < k, C.walk C.first a = C.walk C.first b → a = b) ∧
+      C.walkSum C.first k = C.total ∧
+      ∀ e : E, e ≠ C.conn → ∃ j, j < k ∧ C.walk C.first j = e := by
+  classical
+  have hex := C.exists_walk_conn C.first
+  set k := Nat.find hex with hk
+  have hfind : C.walk C.first k = C.conn := Nat.find_spec hex
+  have hbefore : ∀ j < k, C.walk C.first j ≠ C.conn := fun j hj => Nat.find_min hex hj
+  have hinj := C.walk_inj C.first k hbefore
+  -- The walk's advance is the connector's own reading, hence the run's total.
+  have htw := C.time_walk C.first k hbefore
+  rw [hfind, C.src_first] at htw
+  have heq : ((C.walkSum C.first k : ℕ) : ZMod p) = ((C.total : ℕ) : ZMod p) :=
+    add_left_cancel (htw.symm.trans C.time_conn)
+  have hsum : C.walkSum C.first k = C.total :=
+    C.eq_of_natCast_eq (C.walkSum_le_total C.first hinj) (le_refl _) heq
+  refine ⟨k, hbefore, hinj, hsum, ?_⟩
+  -- The walk's arcs carry the whole advance, so nothing with a positive advance is missing.
+  set I : Finset E := (Finset.range k).image (C.walk C.first) with hI
+  have hIsum : ∑ e ∈ I, C.adv e = C.total := by
+    rw [hI, Finset.sum_image (fun a ha b hb hab =>
+      hinj a (Finset.mem_range.mp ha) b (Finset.mem_range.mp hb) hab)]
+    exact hsum
+  have hsplit := Finset.sum_sdiff (f := C.adv) (Finset.subset_univ I)
+  have htot : ∑ e ∈ (Finset.univ : Finset E), C.adv e = C.total := rfl
+  have hzero : ∑ e ∈ Finset.univ \ I, C.adv e = 0 := by omega
+  intro e he
+  by_contra hcon
+  have heI : e ∈ Finset.univ \ I := by
+    refine Finset.mem_sdiff.mpr ⟨Finset.mem_univ e, fun hmem => ?_⟩
+    rw [hI, Finset.mem_image] at hmem
+    obtain ⟨j, hj, hje⟩ := hmem
+    exact hcon ⟨j, Finset.mem_range.mp hj, hje⟩
+  have h0 := Finset.sum_eq_zero_iff.mp hzero e heI
+  have hp := C.advPos e he
+  omega
+
+/-- **Distinct arcs occupy disjoint slots.** Every arc sits at a position along the one covering
+    walk, and consecutive walk positions are separated by exactly the arc's own advance — so two
+    different arcs' half-open windows `[T, T + adv)` cannot overlap.
+
+    Stated against whatever position the caller has in hand (`Chain.arc_position`'s), since a
+    position below the total is pinned by its field value. -/
+theorem Chain.windows_disjoint (C : Chain p E M) {e e' : E} {T T' : ℕ}
+    (he : e ≠ C.conn) (he' : e' ≠ C.conn) (hne : e ≠ e')
+    (hTle : T ≤ C.total) (hT'le : T' ≤ C.total)
+    (hT : C.time (C.src e) = C.time (C.dst C.conn) + (T : ZMod p))
+    (hT' : C.time (C.src e') = C.time (C.dst C.conn) + (T' : ZMod p)) :
+    T + C.adv e ≤ T' ∨ T' + C.adv e' ≤ T := by
+  obtain ⟨k, hbefore, hinj, hsum, hcover⟩ := C.walk_covering
+  obtain ⟨a, hak, hae⟩ := hcover e he
+  obtain ⟨b, hbk, hbe⟩ := hcover e' he'
+  -- Each walk position is a prefix sum, and each prefix sum sits below the total.
+  have hpre : ∀ j, j ≤ k → C.walkSum C.first j ≤ C.total := by
+    intro j hj
+    exact C.walkSum_le_total C.first (fun x hx y hy hxy =>
+      hinj x (by omega) y (by omega) hxy)
+  have hpos : ∀ j, j < k → C.time (C.src (C.walk C.first j))
+      = C.time (C.dst C.conn) + (C.walkSum C.first j : ZMod p) := by
+    intro j hj
+    have h := C.time_walk C.first j (fun i hi => hbefore i (by omega))
+    rwa [C.src_first] at h
+  -- The caller's position is the walk position.
+  have hTa : T = C.walkSum C.first a := by
+    have h := hpos a hak
+    rw [hae] at h
+    exact C.eq_of_natCast_eq hTle (hpre a (le_of_lt hak))
+      (add_left_cancel (hT.symm.trans h))
+  have hTb : T' = C.walkSum C.first b := by
+    have h := hpos b hbk
+    rw [hbe] at h
+    exact C.eq_of_natCast_eq hT'le (hpre b (le_of_lt hbk))
+      (add_left_cancel (hT'.symm.trans h))
+  have hab : a ≠ b := fun h => hne (hae ▸ hbe ▸ congrArg (C.walk C.first) h)
+  -- A later position is at least an arc's advance further along.
+  have hstep : ∀ x y : ℕ, x < y → y < k →
+      C.walkSum C.first x + C.adv (C.walk C.first x) ≤ C.walkSum C.first y := by
+    intro x y hxy hyk
+    have hadd := C.walkSum_add C.first (le_of_lt hxy)
+    have hmem : C.adv (C.walk C.first x)
+        ≤ ∑ j ∈ Finset.Ico x y, C.adv (C.walk C.first j) :=
+      Finset.single_le_sum (f := fun j => C.adv (C.walk C.first j)) (fun j _ => Nat.zero_le _)
+        (Finset.mem_Ico.mpr ⟨le_refl x, hxy⟩)
+    omega
+  rcases Nat.lt_or_ge a b with hlt | hge
+  · exact Or.inl (by rw [hTa, hTb, ← hae]; exact hstep a b hlt hbk)
+  · have hlt : b < a := by omega
+    exact Or.inr (by rw [hTa, hTb, ← hbe]; exact hstep b a hlt hak)
+
 end VmChain
