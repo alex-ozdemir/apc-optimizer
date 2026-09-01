@@ -95,6 +95,63 @@ theorem inputRead_busStateOf_execBus (r : InputRead p) (ptrReg : Nat) (m : BusMe
     by_cases h2 : ((0 : Nat), [r.pcTo, r.base + (inputStepWindow : ZMod p)]) = m <;>
     simp [h1, h2, hm, Prod.ext_iff]
 
+/-- `busStateOf` peels one interaction at a time — the form the six-entry `InputRead` case
+    analysis below wants. -/
+theorem busStateOf_cons (e : BusInteraction (ZMod p)) (l : List (BusInteraction (ZMod p)))
+    (m : BusMessage p) :
+    busStateOf (e :: l) m
+      = (if (e.busId, e.payload) = m then e.multiplicity else 0) + busStateOf l m := by
+  simp only [busStateOf, List.filter_cons]
+  by_cases h : (e.busId, e.payload) = m
+  · rw [if_pos h, decide_eq_true h]; simp
+  · rw [if_neg h, decide_eq_false h]; simp
+
+theorem busStateOf_nil (m : BusMessage p) : busStateOf [] m = 0 := rfl
+
+/-- `1 ≠ 2` in `ZMod p`, from the rank window — what tells an `InputRead`'s two memory receives
+    apart: one peeks a register (address space `1`), the other overwrites a word (address
+    space `2`), so at most one of them can land on any single message. -/
+theorem openVm_one_ne_two (P : OpenVmParams p) : (1 : ZMod p) ≠ 2 := by
+  have hlt : 2 < p :=
+    lt_trans (by norm_num [openVmRankBound, openVmRankShift, openVmTimestampBound,
+      openVmTimestampBits]) P.rankWindowOk
+  haveI : NeZero p := ⟨by omega⟩
+  intro h
+  have h1 : (1 : ZMod p) = 0 := by linear_combination -h
+  have hval : ((1 : ℕ) : ZMod p).val = 1 := ZMod.val_cast_of_lt (by omega)
+  rw [show ((1 : ℕ) : ZMod p) = (1 : ZMod p) by push_cast; ring, h1, ZMod.val_zero] at hval
+  omega
+
+/-- **An `InputRead`'s memory contribution at a message it does not send**: `0` or `-1`. The two
+    bridge messages are on another bus, the two sends are excluded by hypothesis, and the two
+    receives carry different address spaces, so at most one of them lands on `m`. -/
+theorem inputRead_busStateOf_mem (r : InputRead p) (ptrReg : Nat) {m : BusMessage p}
+    (hm : m.1 = 1) (h12 : (1 : ZMod p) ≠ 2)
+    (hns1 : ((1 : Nat), [(1 : ZMod p), (ptrReg : ZMod p)] ++ r.ptrLimbs.toList
+      ++ [r.base + 1]) ≠ m)
+    (hns2 : ((1 : Nat), [(2 : ZMod p), r.ptr, r.byte, 0, 0, 0, r.base + 2]) ≠ m) :
+    busStateOf (r.interactions ptrReg 0 1) m = 0 ∨
+      busStateOf (r.interactions ptrReg 0 1) m = -1 := by
+  have hbus : ∀ q : BusMessage p, q.1 = 0 → q ≠ m := by
+    intro q hq h
+    rw [h, hm] at hq
+    exact Nat.one_ne_zero hq
+  have hb0 := hbus ((0 : Nat), [r.pcFrom, r.base]) rfl
+  have hb1 := hbus ((0 : Nat), [r.pcTo, r.base + (inputStepWindow : ZMod p)]) rfl
+  rw [InputRead.interactions, busStateOf_cons, busStateOf_cons, busStateOf_cons,
+    busStateOf_cons, busStateOf_cons, busStateOf_cons, busStateOf_nil,
+    if_neg hb0, if_neg hb1, if_neg hns1, if_neg hns2]
+  by_cases h2 : ((1 : Nat), [(1 : ZMod p), (ptrReg : ZMod p)] ++ r.ptrLimbs.toList
+      ++ [r.ptrTime]) = m <;>
+    by_cases h4 : ((1 : Nat), [(2 : ZMod p), r.ptr] ++ r.oldWord.toList ++ [r.wordTime]) = m
+  · exfalso
+    have hpl := congrArg Prod.snd (h2.trans h4.symm)
+    simp only [List.cons_append, List.nil_append, List.cons.injEq] at hpl
+    exact h12 hpl.1
+  · rw [if_pos h2, if_neg h4]; right; ring
+  · rw [if_neg h2, if_pos h4]; right; ring
+  · rw [if_neg h2, if_neg h4]; left; ring
+
 /-- **Only the connector and the input chip touch the execution bridge.** The four lookup chips
     pin their bus id to a lookup bus and the four other memory-bus chips to memory, so on bus `0`
     the host's whole net is the connector's plus every realized input-chip instance's own bridge
