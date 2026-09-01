@@ -603,6 +603,9 @@ theorem openVmHost_stepLayout_unpack
 theorem openVmHost_forcesAccepts [Fact p.Prime] (P : OpenVmParams p)
     (hOrd : (openVmHost P).ordersRanks (openVmRankModel openVmMemBusId)
       ((openVmBusSemantics p defaultBusMap).toGuestRules
+        (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem))
+    (hPast : (openVmHost P).receivesArePast
+      ((openVmBusSemantics p defaultBusMap).toGuestRules
         (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem)) :
     (openVmHost P).forcesAccepts
       (openVmBusSemantics p defaultBusMap) :=
@@ -613,12 +616,15 @@ theorem openVmHost_forcesAccepts [Fact p.Prime] (P : OpenVmParams p)
       openVmHost_statefulChipsMaintain P⟩
     (openVmBusSemantics_statefulAcceptsOfPayloadOk
       (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem)
-    hOrd
+    hOrd hPast
 
 /-- **`openVmHost` realizes OpenVM's bus semantics** — unconditionally. This is the whole VM-side
     obligation of `vmSoundReplacement_of_forall₂`, discharged for a concrete host. -/
 theorem openVmHost_realizes (P : OpenVmParams p)
     (hOrd : (openVmHost P).ordersRanks (openVmRankModel openVmMemBusId)
+      ((openVmBusSemantics p defaultBusMap).toGuestRules
+        (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem))
+    (hPast : (openVmHost P).receivesArePast
       ((openVmBusSemantics p defaultBusMap).toGuestRules
         (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem)) :
     (openVmHost P).realizes
@@ -635,5 +641,6 @@ theorem openVmHost_realizes (P : OpenVmParams p)
       (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem
   absorbsStateless := openVmHost_absorbsStateless P
   ordersRanks := hOrd
+  receivesArePast := hPast
 
 end ApcOptimizer.OpenVM

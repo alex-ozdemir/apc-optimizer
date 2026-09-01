@@ -518,6 +518,81 @@ theorem bridge_chain_bound {maxInstances maxInputInstances : ℕ}
   push_cast
   ring
 
+/-- **Every bridge arc's position, guest or input-chip alike.** `bridge_chain_bound` reads off a
+    guest instance's own `tStart`; this is the same fact for an arbitrary arc, kept in the raw
+    `Chain` coordinates `VmChain.Chain.windows_disjoint` consumes. -/
+theorem bridge_arc_bound {maxInstances maxInputInstances : ℕ}
+    (h2 : (-1 : ZMod p) ≠ 1)
+    (hbal : ∀ m : BusMessage p, m.1 = 0 →
+      gA.busEffect m + (∑ i : Fin n, busStateOf ((iR i).interactions ptrReg 0 1) m)
+        + busStateOf (r.interactions 0) m = 0)
+    (hIlt : inputStepWindow < maxWindow)
+    (hcount : (∑ s : Fin G.length, (gA s).length) ≤ maxInstances)
+    (hcountI : n ≤ maxInputInstances)
+    (hp : (maxInstances + maxInputInstances + 1) * (maxWindow + 1) < p)
+    (e : BridgeArc gA n) (he : e ≠ none) :
+    ∃ T : ℕ, T + bridgeAdv gA S e
+        ≤ (bridgeChain gA S iR ptrReg r h2 hbal hIlt hcount hcountI hp).total ∧
+      openVmBridgeTimestamp (bridgeSrc gA S iR r e)
+        = openVmBridgeTimestamp (bridgeDst gA S iR r none) + (T : ZMod p) :=
+  (bridgeChain gA S iR ptrReg r h2 hbal hIlt hcount hcountI hp).arc_position e he
+
+/-- **Distinct bridge arcs hold disjoint windows.** Two instructions of a run — guest steps and
+    input-chip instances alike — never overlap in time: the chain places each in its own slot
+    (`VmChain.Chain.windows_disjoint`), and the advance budget is what makes the slots a single
+    line rather than parallel strands.
+
+    This is what stops a step from net-receiving a memory record timestamped inside its own
+    window: the record's sender would have to share the slot. -/
+theorem bridge_arcs_disjoint {maxInstances maxInputInstances : ℕ}
+    (h2 : (-1 : ZMod p) ≠ 1)
+    (hbal : ∀ m : BusMessage p, m.1 = 0 →
+      gA.busEffect m + (∑ i : Fin n, busStateOf ((iR i).interactions ptrReg 0 1) m)
+        + busStateOf (r.interactions 0) m = 0)
+    (hIlt : inputStepWindow < maxWindow)
+    (hcount : (∑ s : Fin G.length, (gA s).length) ≤ maxInstances)
+    (hcountI : n ≤ maxInputInstances)
+    (hp : (maxInstances + maxInputInstances + 1) * (maxWindow + 1) < p)
+    (x y : BridgeArc gA n) (hx : x ≠ none) (hy : y ≠ none) (hxy : x ≠ y) :
+    ∃ Tx Ty : ℕ,
+      openVmBridgeTimestamp (bridgeSrc gA S iR r x) = ((1 + Tx : ℕ) : ZMod p) ∧
+      openVmBridgeTimestamp (bridgeSrc gA S iR r y) = ((1 + Ty : ℕ) : ZMod p) ∧
+      1 + Tx + bridgeAdv gA S x ≤ r.finalTimestamp.val ∧
+      1 + Ty + bridgeAdv gA S y ≤ r.finalTimestamp.val ∧
+      (Tx + bridgeAdv gA S x ≤ Ty ∨ Ty + bridgeAdv gA S y ≤ Tx) := by
+  have hppos : 0 < p := Nat.lt_of_le_of_lt (Nat.zero_le _) hp
+  haveI : NeZero p := ⟨by omega⟩
+  set C := bridgeChain gA S iR ptrReg r h2 hbal hIlt hcount hcountI hp with hC
+  obtain ⟨N, hN⟩ : ∃ N, C.total = N := ⟨_, rfl⟩
+  have htot : N ≤ (maxInstances + maxInputInstances) * maxWindow :=
+    hN ▸ bridge_total_le gA S hIlt hcount hcountI
+  have h1N : 1 + N < p := by
+    have hp' := hp
+    rw [show (maxInstances + maxInputInstances + 1) * (maxWindow + 1)
+      = (maxInstances + maxInputInstances) * maxWindow
+        + (maxInstances + maxInputInstances + maxWindow + 1) from by ring] at hp'
+    obtain ⟨M, hM⟩ : ∃ M, (maxInstances + maxInputInstances) * maxWindow = M := ⟨_, rfl⟩
+    rw [hM] at hp' htot
+    omega
+  -- The connector's produced state starts the clock at `1`.
+  have hconn0 : openVmBridgeTimestamp (bridgeDst gA S iR r none) = (1 : ZMod p) := rfl
+  have hfinal : r.finalTimestamp.val = 1 + N := by
+    have h' : r.finalTimestamp = 1 + ((C.total : ℕ) : ZMod p) := C.time_conn
+    rw [hN] at h'
+    have hcast : (1 : ZMod p) + ((N : ℕ) : ZMod p) = ((1 + N : ℕ) : ZMod p) := by push_cast; ring
+    rw [h', hcast, ZMod.val_cast_of_lt h1N]
+  obtain ⟨Tx, hTx1, hTx2⟩ := bridge_arc_bound gA S iR ptrReg r h2 hbal hIlt hcount hcountI hp x hx
+  obtain ⟨Ty, hTy1, hTy2⟩ := bridge_arc_bound gA S iR ptrReg r h2 hbal hIlt hcount hcountI hp y hy
+  have hcastx : (1 : ZMod p) + (Tx : ZMod p) = ((1 + Tx : ℕ) : ZMod p) := by push_cast; ring
+  have hcasty : (1 : ZMod p) + (Ty : ZMod p) = ((1 + Ty : ℕ) : ZMod p) := by push_cast; ring
+  have hTx2' : openVmBridgeTimestamp (bridgeSrc gA S iR r x) = ((1 + Tx : ℕ) : ZMod p) := by
+    rw [hTx2, hconn0, hcastx]
+  have hTy2' : openVmBridgeTimestamp (bridgeSrc gA S iR r y) = ((1 + Ty : ℕ) : ZMod p) := by
+    rw [hTy2, hconn0, hcasty]
+  rw [hN] at hTx1 hTy1
+  exact ⟨Tx, Ty, hTx2', hTy2', by omega, by omega,
+    C.windows_disjoint hx hy hxy (by rw [hN]; omega) (by rw [hN]; omega) hTx2 hTy2⟩
+
 end Bridge
 
 --------- The rank window ---------
