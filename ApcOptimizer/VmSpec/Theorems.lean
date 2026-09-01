@@ -20,7 +20,8 @@ theorem openVm_vmSoundReplacement [Fact p.Prime] {P : OpenVmParams p} {G G' : Gu
     VmSoundReplacement (openVmHost P) G G' :=
   vmSoundReplacement_of_forall₂
     (openVmHost_realizes P
-      (openVmGuestRules_eq defaultBusMap openVmMemBusId ▸ openVmHost_ordersRanks P))
+      (openVmGuestRules_eq defaultBusMap openVmMemBusId ▸ openVmHost_ordersRanks P)
+      (openVmGuestRules_eq defaultBusMap openVmMemBusId ▸ openVmHost_receivesArePast P))
     hLegal hSound
 
 end ApcOptimizer.OpenVM
