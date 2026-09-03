@@ -122,12 +122,18 @@ local `admissible`, is new work; it will likely reuse the execution-bridge/offse
 for soundness (`StepLayout`, `Implementation/Chain.lean`, `Implementation/OpenVmChain.lean`) but
 pointed at a different conclusion.
 
-## What is proven against a real APC (`Audit/RealApcLegality.lean`)
+## What is proven against real APCs (`Audit/Apcs/`)
 
-Measured against the keccak block at pc `2105000`, at three points of powdr's own optimizer
-pipeline (`Audit/Apc2105000.lean`, emitted by `Scripts/emit-apc-lean.py`) — same block, same
-semantics, three forms, so a difference between results is a statement about the optimizer, not
-about the block:
+One directory per APC, each in its own namespace with the same member names: `Stages.lean` is the
+circuit at each point of powdr's pipeline (emitted by `Scripts/emit-apc-lean.py`) plus the
+modifications a proof needs, `Layout.lean` is the placement data the optimized and gated stages
+share, and one file per stage carries that stage's proofs — split because each stage's
+`hasStepLayout` is a slow `decide`, so they compile in parallel. `Apcs/Common.lean` holds what no
+APC owns; `Audit/RealApcLegality.lean` imports them all and is the index.
+
+Measured against the keccak block at pc `2105000` (`Apcs/Keccak2105000/`), at three points of
+powdr's own optimizer pipeline — same block, same semantics, three forms, so a difference between
+results is a statement about the optimizer, not about the block:
 
 | | unoptimized (`000`) | trivially-simplified (`039`) | final, gated (`040`) |
 | --- | --- | --- | --- |
@@ -137,15 +143,14 @@ about the block:
 Both falsities are properties of the circuits, not the clause. The unoptimized stage is four
 instruction steps whose bridge states do not cancel until powdr's substitution pass chains their
 timestamps (`from_state__timestamp_{i+1} = from_state__timestamp_i + d_i`); adding those three
-equations collapses it to the one step `039` already has
-(`apc2105000UnoptChained_hasStepLayout`). The final stage's padding gate makes the all-zero
-assignment algebraically satisfying with a bridge net of `0`, where a step's receive must net `-1`
-(`apc2105000Gated_not_hasStepLayout`); pinning `is_valid` restores it
-(`apc2105000GatedPinned_hasStepLayout`). Every "true" above is a decidable checker plus a
-soundness theorem (`Audit/SendOnlyPolarity.lean`), not a hand proof over the circuit.
+equations collapses it to the one step `039` already has (`unoptChained_hasStepLayout`). The final
+stage's padding gate makes the all-zero assignment algebraically satisfying with a bridge net of
+`0`, where a step's receive must net `-1` (`gated_not_hasStepLayout`); pinning `is_valid` restores
+it (`gatedPinned_hasStepLayout`). Every "true" above is a decidable checker plus a soundness
+theorem (`Audit/SendOnlyPolarity.lean`), not a hand proof over the circuit.
 
 `Audit/LinForm.lean`, `BridgeCheck.lean`, `PlaceCheck.lean`, `ByteCheck.lean` are the checker
-layers `apc2105000Opt_hasStepLayout`'s proof is built from — normalizing expressions to linear
+layers `opt_hasStepLayout`'s proof is built from — normalizing expressions to linear
 form, then deciding the bridge shape, each interaction's offset (via a per-interaction `Recipe`),
 and the byte invariant, respectively — each exposing a soundness theorem as its audit surface and
 nothing about the search or arithmetic that produces its `Bool`.

@@ -11,8 +11,8 @@ import ApcOptimizer.VmSpec.Implementation.Chain
 import ApcOptimizer.VmSpec.Implementation.OpenVmChain
 import ApcOptimizer.VmSpec.Implementation.Validation
 
--- `VmSpec/Audit/` (see below) is deliberately not imported here: `Audit/RealApcLegality.lean`
--- alone takes ~5 minutes to compile, and nothing in this file's own claims depends on it -- see
+-- `VmSpec/Audit/` (see below) is deliberately not imported here: `Audit/Apcs/`
+-- alone takes ~10 minutes to compile, and nothing in this file's own claims depends on it -- see
 -- "files that audit the audit surface" below. Omitting the import keeps `lake build
 -- ApcOptimizer.VmSpec` fast without disabling `Audit/`: build it explicitly, e.g. `lake build
 -- ApcOptimizer.VmSpec.Audit.RealApcLegality`.
@@ -87,18 +87,19 @@ import ApcOptimizer.VmSpec.Implementation.Validation
       by), and the byte invariant a memory send must satisfy. What needs auditing is each checker's
       exposed statement — `bridgeCheck_sound`; `recipe_placed`, `recipe_ordered` and
       `gadgetIdentity_sound` (the last is generic linear-identity checking, not OpenVM-specific —
-      `RealApcLegality.lean`'s `lookback_of_gadget` is what ties it to `AssertLtSubAir`); and
+      `Audit/Apcs/Common.lean`'s `lookback_of_gadget` is what ties it to `AssertLtSubAir`); and
       `byteCheck_sendsOk` — not the walk, matching, or arithmetic that produces the `Bool`.
-    * `Audit/RealApcLegality.lean` — the legality clauses measured against three *real* stages of
-      one APC, the keccak block at pc `2105000` in powdr's optimizer pipeline
-      (`Audit/Apc2105000.lean`, emitted from the stage dumps by `Scripts/emit-apc-lean.py`). Both
-      multiplicity clauses hold at every stage. `hasStepLayout` holds only of the
+    * `Audit/Apcs/` — the legality clauses measured against *real* APCs at several stages of
+      powdr's optimizer pipeline, one directory per APC (its `Stages.lean` emitted from the stage
+      dumps by `Scripts/emit-apc-lean.py`, one file of proofs per stage) over the shared
+      `Apcs/Common.lean`; `Audit/RealApcLegality.lean` imports them all and is the index. Both
+      multiplicity clauses hold at every stage of every APC. `hasStepLayout` holds of the
       trivially-simplified stage, proved almost entirely through the checkers above
-      (`apc2105000Opt_hasStepLayout`); it is false of the optimizer's final output, on the all-zero
-      padding row its fresh `is_valid` column makes algebraically satisfying
-      (`apc2105000Gated_not_hasStepLayout`), and false of the unoptimized stage, whose four fused
-      instructions' bridge states do not cancel without powdr's substitution pass. Same block at
-      every stage, so each falsity is a statement about the optimizer, not about the block.
+      (`opt_hasStepLayout`); it is false of the optimizer's final output, on the all-zero padding
+      row its fresh `is_valid` column makes algebraically satisfying (`gated_not_hasStepLayout`),
+      and — for a *fused* block — false of the unoptimized stage, whose instructions' bridge states
+      do not cancel without powdr's substitution pass. Same block at every stage, so each falsity
+      is a statement about the optimizer, not about the block.
     * `Audit/SoundnessGivesLegality.lean` — how much of `Circuit.legalGuest` a chip-level soundness
       proof already gives for free, and where the residue is real: legality of the optimizer's
       output cannot be derived from soundness alone (a per-chip `Circuit.isSoundReplacementOf`
