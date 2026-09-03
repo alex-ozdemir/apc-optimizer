@@ -179,16 +179,30 @@ pairs beyond those five. Their `memSendsOk` proofs now run a strong induction on
 induction hypothesis, or a receive, settled by the flat hypothesis. That replaces the old
 conversion from `place` order into index order, so the `*OffsetUb_dominates` tables are gone.
 
-**`memInteractionsUnique` is false for `apc2105000UnoptChained`.** Four receive/receive pairs
-survive every static reason — (15,47) at address `52`, and (27,55)/(27,62)/(55,62) at address `44`.
-They are not merely unproven: each `*_prev_timestamp_*` is bounded only below its own access by its
-own lt gadget, their reachable windows overlap, and `writes_aux__prev_data__*_0` occurs in **zero**
-algebraic constraints. So from any satisfying assignment, setting both prev-timestamps to a common
-in-range tick and the free `prev_data` columns to the other receive's data yields another
-satisfying assignment where two distinct interactions carry the identical message at multiplicity
-`-1`. The optimized stage escapes only because powdr deduplicated those accesses — which makes the
-clause sensitive to whether the optimizer happened to clean up, a fragile thing for an audited
-condition to depend on.
+**`memInteractionsUnique` is false for `apc2105000UnoptChained`.** `memSepAll` leaves eight pairs
+on that circuit, of two kinds. Four are send/send — (16,48) at address `52`, and
+(28,56)/(28,63)/(56,63) at `44` — and are artifacts of the checker: every send sits at
+`from_state__timestamp_0` plus a literal (`2` vs `6`; `3` vs `8` vs `9`), which `constDiff` cannot
+see, because it folds constants and the chain equations are linear. `LinForm.lean`'s normalizer,
+which `bridgeCheckL` already runs on this circuit, separates all four.
+
+The other four are receive/receive — (15,47) at `52`, and (27,55)/(27,62)/(55,62) at `44` — and are
+genuine. Every `*_prev_timestamp_*` is bounded only below its own access by its own lt gadget
+(`prev = access - 1 - d`, with `d` range-checked to `17 + 12` bits, so `d ∈ [0, 2 ^ 29)`), and the
+windows overlap. What frees the data differs by pair:
+
+- (15,47), (27,55) and (55,62) each have a `writes_aux__prev_data__*_i` side, occurring in **zero**
+  algebraic constraints and **zero** range checks — interaction `15`/`55` is its only occurrence in
+  the circuit — so it impersonates the other receive's data outright.
+- (27,62) has no free side. `a__*_3` is constrained only by the branch's comparison gadget, whose
+  `diff_inv_marker__*_3` columns and opcode flags are free, so `a__*_3 := b__*_1` is satisfiable
+  (take `beq`, `cmp_result_3 = 1`, `b__*_3 := b__*_1`).
+
+So from any satisfying assignment, setting the two prev-timestamps to a common in-range tick and
+the data columns to match yields another satisfying assignment where two distinct interactions
+carry the identical message at multiplicity `-1`. The optimized stage escapes only because powdr
+deduplicated those accesses — which makes the clause sensitive to whether the optimizer happened to
+clean up, a fragile thing for an audited condition to depend on.
 
 Two weakenings, worked out but not implemented:
 
@@ -203,12 +217,24 @@ Two weakenings, worked out but not implemented:
   read-after-write inside a fused block (net `0`), which the flat `memSendsOk` was designed to
   absorb and the current clause forbids by accident.
 
-Neither weakening rescues `apc2105000UnoptChained`, and probably no per-chip condition can: that
-circuit is under-constrained as a standalone chip, its free `prev_data` columns able to impersonate
-any data tuple. Weakening the clause until it fits is the wrong move; instead
-`apc2105000UnoptChained_hasStepLayout` now takes `UnoptChainedMemSep` — exactly the separation the
-circuit does not force — as a hypothesis, so everything else about its layout (the bridge, all `71`
-placements, the byte invariant) stays measured rather than deleted.
+Neither weakening rescues `apc2105000UnoptChained`. Weakening 2 fails on one triple at address
+`44`: send `28` carries `b__*_1` at `t₀ + 3`, and *both* receive `55` (free `prev_data`, window
+`≤ t₀ + 7`) and receive `62` (`a__*_3 := b__*_1`, window `≤ t₀ + 8`) can land on that message, so a
+send's own message nets `-1`. It is the only such triple — at sends `8`, `16`, `36`, `48`, `56`,
+`63` and `67` every receive at that address is capped below the send's own tick, so at most one can
+match. And probably no per-chip condition rescues the circuit: it is under-constrained as a
+standalone chip, its free `prev_data` columns able to impersonate any data tuple. Weakening the
+clause until it fits is the wrong move; instead `apc2105000UnoptChained_hasStepLayout` takes
+`UnoptChainedMemSep` — exactly the separation the circuit does not force — as a hypothesis, so
+everything else about its layout (the bridge, all `71` placements, the byte invariant) stays
+measured rather than deleted.
+
+`UnoptChainedMemSep` is consumed twice there, and only one of the two is the clause: the other is
+`recvNet_of_msgSep`, feeding `memSendsOk`. The flat hypothesis speaks only of messages the step
+nets at `-1`, and two colliding receives net `-2`, so it says nothing about them and the send that
+echoes one of them cannot be discharged. Dropping `memInteractionsUnique` from `StepLayout` would
+therefore not make this circuit legal by itself — the flat hypothesis would have to become
+per-interaction (the scoped, `tOffset`-ordered variant) as well.
 
 ## Known limitations
 
