@@ -229,6 +229,82 @@ ApcOptimizer.OpenVM.Keccak2105000.unoptWriteIsByte_2
 ApcOptimizer.OpenVM.Keccak2105000.unoptByteCheck
 ApcOptimizer.OpenVM.Keccak2105000.unoptChained_memSendsOk
 
+# The two single-instruction APCs (`Audit/Apcs/SingleXor/`, `Audit/Apcs/SingleBeq/`), audited at
+# the same stages as the keccak block over the same `Apcs/Common.lean`. Their roots are the same
+# per-stage results; nothing new is shared.
+ApcOptimizer.OpenVM.SingleXor.gated_checkMultiplicities_fails
+ApcOptimizer.OpenVM.SingleXor.gated_satisfiesAlgebraic_zero
+ApcOptimizer.OpenVM.SingleXor.gated_mults_zero_on_padding
+ApcOptimizer.OpenVM.SingleXor.gated_not_hasStepLayout
+ApcOptimizer.OpenVM.SingleXor.gatedPinRules
+ApcOptimizer.OpenVM.SingleXor.gatedPinRules_hold
+ApcOptimizer.OpenVM.SingleXor.gatedIsValid
+ApcOptimizer.OpenVM.SingleXor.gatedIsValid_ne_zero
+ApcOptimizer.OpenVM.SingleXor.gatedPinned_checkMultiplicitiesWith
+ApcOptimizer.OpenVM.SingleXor.gatedPinned_legalMultiplicities
+ApcOptimizer.OpenVM.SingleXor.gatedBaseLin
+ApcOptimizer.OpenVM.SingleXor.gatedBridgeCheck
+ApcOptimizer.OpenVM.SingleXor.gatedByteCheck
+ApcOptimizer.OpenVM.SingleXor.gatedPinned_hasStepLayout
+ApcOptimizer.OpenVM.SingleXor.gatedPinned_legalGuest
+ApcOptimizer.OpenVM.SingleXor.offsets
+ApcOptimizer.OpenVM.SingleXor.offsetUb
+ApcOptimizer.OpenVM.SingleXor.offsetUb_dominates
+ApcOptimizer.OpenVM.SingleXor.layoutVars
+ApcOptimizer.OpenVM.SingleXor.baseE
+ApcOptimizer.OpenVM.SingleXor.baseF
+ApcOptimizer.OpenVM.SingleXor.witnesses
+ApcOptimizer.OpenVM.SingleXor.opt_checkMultiplicities
+ApcOptimizer.OpenVM.SingleXor.opt_legalMultiplicities
+ApcOptimizer.OpenVM.SingleXor.opt_no_padding_row
+ApcOptimizer.OpenVM.SingleXor.optPinRules
+ApcOptimizer.OpenVM.SingleXor.optPinRules_hold
+ApcOptimizer.OpenVM.SingleXor.optBaseLin
+ApcOptimizer.OpenVM.SingleXor.optBridgeCheck
+ApcOptimizer.OpenVM.SingleXor.optByteCheck
+ApcOptimizer.OpenVM.SingleXor.opt_hasStepLayout
+ApcOptimizer.OpenVM.SingleXor.opt_legalGuest
+ApcOptimizer.OpenVM.SingleXor.unopt_checkMultiplicitiesWith
+ApcOptimizer.OpenVM.SingleXor.unopt_legalMultiplicities
+ApcOptimizer.OpenVM.SingleXor.unopt_zero_not_satisfiesAlgebraic
+
+# `SingleBeq` writes nothing, so its byte invariant is entirely decidable.
+ApcOptimizer.OpenVM.SingleBeq.gated_checkMultiplicities_fails
+ApcOptimizer.OpenVM.SingleBeq.gated_satisfiesAlgebraic_zero
+ApcOptimizer.OpenVM.SingleBeq.gated_mults_zero_on_padding
+ApcOptimizer.OpenVM.SingleBeq.gated_not_hasStepLayout
+ApcOptimizer.OpenVM.SingleBeq.gatedPinRules
+ApcOptimizer.OpenVM.SingleBeq.gatedPinRules_hold
+ApcOptimizer.OpenVM.SingleBeq.gatedIsValid
+ApcOptimizer.OpenVM.SingleBeq.gatedIsValid_ne_zero
+ApcOptimizer.OpenVM.SingleBeq.gatedPinned_checkMultiplicitiesWith
+ApcOptimizer.OpenVM.SingleBeq.gatedPinned_legalMultiplicities
+ApcOptimizer.OpenVM.SingleBeq.gatedBaseLin
+ApcOptimizer.OpenVM.SingleBeq.gatedBridgeCheck
+ApcOptimizer.OpenVM.SingleBeq.gatedByteCheck
+ApcOptimizer.OpenVM.SingleBeq.gatedPinned_hasStepLayout
+ApcOptimizer.OpenVM.SingleBeq.gatedPinned_legalGuest
+ApcOptimizer.OpenVM.SingleBeq.offsets
+ApcOptimizer.OpenVM.SingleBeq.offsetUb
+ApcOptimizer.OpenVM.SingleBeq.offsetUb_dominates
+ApcOptimizer.OpenVM.SingleBeq.layoutVars
+ApcOptimizer.OpenVM.SingleBeq.baseE
+ApcOptimizer.OpenVM.SingleBeq.baseF
+ApcOptimizer.OpenVM.SingleBeq.witnesses
+ApcOptimizer.OpenVM.SingleBeq.opt_checkMultiplicities
+ApcOptimizer.OpenVM.SingleBeq.opt_legalMultiplicities
+ApcOptimizer.OpenVM.SingleBeq.opt_no_padding_row
+ApcOptimizer.OpenVM.SingleBeq.optPinRules
+ApcOptimizer.OpenVM.SingleBeq.optPinRules_hold
+ApcOptimizer.OpenVM.SingleBeq.optBaseLin
+ApcOptimizer.OpenVM.SingleBeq.optBridgeCheck
+ApcOptimizer.OpenVM.SingleBeq.optByteCheck
+ApcOptimizer.OpenVM.SingleBeq.opt_hasStepLayout
+ApcOptimizer.OpenVM.SingleBeq.opt_legalGuest
+ApcOptimizer.OpenVM.SingleBeq.unopt_checkMultiplicitiesWith
+ApcOptimizer.OpenVM.SingleBeq.unopt_legalMultiplicities
+ApcOptimizer.OpenVM.SingleBeq.unopt_zero_not_satisfiesAlgebraic
+
 # `Legal.lean`'s `memOrdered`/`memSendsOk` restriction to the memory bus (added alongside
 # `GuestBusRules.memPayloadOnly`, which settles every other stateful bus outright): the general
 # adapter from the old cross-bus `sendsOk` shape, and OpenVM's proof that its bus semantics

@@ -1,4 +1,20 @@
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.Unopt
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.Opt
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.Gated
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.GatedPinned
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Unopt
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Opt
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Gated
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.GatedPinned
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.Unopt
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.Unopt
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.Opt
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.Gated
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.GatedPinned
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Unopt
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Opt
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Gated
+import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.GatedPinned
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.UnoptChained
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.Opt
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.Gated
@@ -30,6 +46,14 @@ import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.GatedPinned
       `hasStepLayout` is a large `decide`, and this way they compile in parallel and one edit does
       not rebuild the others.
 
+    ## The APCs
+
+    | | what it is | why it is here |
+    | --- | --- | --- |
+    | `Keccak2105000` | a keccak basic block, four fused instructions | the real thing: a big block, a branch at the end, a masked write |
+    | `SingleXor` | `[x8] = [x7] ^ [x5]` | one instruction: a fresh write whose byte-ness comes from the bitwise table |
+    | `SingleBeq` | `if [x8] == [x5] jump +2` | a *branching* step: `pc` out is `4 - 2·cmp`, and nothing is written |
+
     ## What is checked, per stage
 
     | | `unopt` (`000`) | `opt` (last `trivial_simp`) | `gated` (final) |
@@ -37,6 +61,12 @@ import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.GatedPinned
     | `statelessSendOnly` | **true** | **true** | true, out of checker reach |
     | `statefulPolarity` | **true** | **true** | true, out of checker reach |
     | `hasStepLayout` | fused: **false** | **true** | **false**, padding row |
+
+    The same table holds for all three APCs, which is the point: the two falsities are properties
+    of powdr's pipeline, not of any one block. The gated stage's padding row reproduces on a
+    single-instruction APC exactly as on a fused block, so that gap is the gating pass rather than
+    anything about fusion; the unoptimized stage's failure, by contrast, *is* about fusion, and a
+    single-instruction `unopt` has nothing to chain.
 
     Every "true" is discharged by `Audit/SendOnlyPolarity.lean`'s decidable checker and its
     soundness theorem — a `Bool` and a `rfl`, with no case analysis over the circuit written by

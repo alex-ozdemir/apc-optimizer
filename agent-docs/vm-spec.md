@@ -131,22 +131,31 @@ share, and one file per stage carries that stage's proofs — split because each
 `hasStepLayout` is a slow `decide`, so they compile in parallel. `Apcs/Common.lean` holds what no
 APC owns; `Audit/RealApcLegality.lean` imports them all and is the index.
 
-Measured against the keccak block at pc `2105000` (`Apcs/Keccak2105000/`), at three points of
-powdr's own optimizer pipeline — same block, same semantics, three forms, so a difference between
-results is a statement about the optimizer, not about the block:
+Three APCs are audited, each at three points of powdr's own optimizer pipeline — same block, same
+semantics, three forms, so a difference between results is a statement about the optimizer, not
+about the block:
 
-| | unoptimized (`000`) | trivially-simplified (`039`) | final, gated (`040`) |
+| | what it is |
+| --- | --- |
+| `Apcs/Keccak2105000/` | a keccak basic block at pc `2105000`, four fused instructions |
+| `Apcs/SingleXor/` | one instruction, `[x8] = [x7] ^ [x5]` — a fresh write the bitwise table vouches for |
+| `Apcs/SingleBeq/` | one instruction, `if [x8] == [x5] jump +2` — a *branching* step, no write |
+
+| | unoptimized (`000`) | trivially-simplified | final, gated |
 | --- | --- | --- | --- |
 | `statelessSendOnly` / `statefulPolarity` | true | true | true, out of checker reach |
-| `hasStepLayout` | **false** — four unchained steps | **true** — one step | **false** — padding row |
+| `hasStepLayout` | fused: **false** — unchained steps | **true** — one step | **false** — padding row |
 
-Both falsities are properties of the circuits, not the clause. The unoptimized stage is four
+Both falsities are properties of the circuits, not the clause. That the gated stage's padding row
+reproduces on a single-instruction APC says that gap is powdr's gating pass, not fusion; the
+unoptimized stage's failure, by contrast, is exactly about fusion — a single-instruction `unopt` is
+already one step and has nothing to chain. The keccak block's unoptimized stage is four
 instruction steps whose bridge states do not cancel until powdr's substitution pass chains their
 timestamps (`from_state__timestamp_{i+1} = from_state__timestamp_i + d_i`); adding those three
-equations collapses it to the one step `039` already has (`unoptChained_hasStepLayout`). The final
-stage's padding gate makes the all-zero assignment algebraically satisfying with a bridge net of
-`0`, where a step's receive must net `-1` (`gated_not_hasStepLayout`); pinning `is_valid` restores
-it (`gatedPinned_hasStepLayout`). Every "true" above is a decidable checker plus a soundness
+equations collapses it to the one step `039` already has (`unoptChained_hasStepLayout`). Every
+final stage's padding gate makes the all-zero assignment algebraically satisfying with a bridge net
+of `0`, where a step's receive must net `-1` (`gated_not_hasStepLayout`); pinning `is_valid`
+restores it (`gatedPinned_hasStepLayout`). Every "true" above is a decidable checker plus a soundness
 theorem (`Audit/SendOnlyPolarity.lean`), not a hand proof over the circuit.
 
 `Audit/LinForm.lean`, `BridgeCheck.lean`, `PlaceCheck.lean`, `ByteCheck.lean` are the checker
