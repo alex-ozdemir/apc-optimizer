@@ -122,30 +122,59 @@ local `admissible`, is new work; it will likely reuse the execution-bridge/offse
 for soundness (`StepLayout`, `Implementation/Chain.lean`, `Implementation/OpenVmChain.lean`) but
 pointed at a different conclusion.
 
-## What is proven against a real APC (`Audit/RealApcLegality.lean`)
+## What is proven against real APCs (`Audit/Apcs/`)
 
-Measured against the keccak block at pc `2105000`, at three points of powdr's own optimizer
-pipeline (`Audit/Apc2105000.lean`, emitted by `Scripts/emit-apc-lean.py`) — same block, same
-semantics, three forms, so a difference between results is a statement about the optimizer, not
-about the block:
+One directory per APC, each in its own namespace with the same member names: `Stages.lean` is the
+circuit at each point of powdr's pipeline (emitted by `Scripts/emit-apc-lean.py`) plus the
+modifications a proof needs, `Layout.lean` is the placement data the optimized and gated stages
+share, and one file per stage carries that stage's proofs — split because each stage's
+`hasStepLayout` is a slow `decide`, so they compile in parallel. `Apcs/Common.lean` holds what no
+APC owns; `Audit/RealApcLegality.lean` imports them all and is the index.
 
-| | unoptimized (`000`) | trivially-simplified (`039`) | final, gated (`040`) |
+Five APCs are audited. Three of them at three points of powdr's own optimizer pipeline — same
+block, same semantics, three forms, so a difference between results is a statement about the
+optimizer, not about the block:
+
+| | what it is |
+| --- | --- |
+| `Apcs/Keccak2105000/` | a keccak basic block at pc `2105000`, four fused instructions |
+| `Apcs/SingleXor/` | one instruction, `[x8] = [x7] ^ [x5]` — a fresh write the bitwise table vouches for |
+| `Apcs/SingleBeq/` | one instruction, `if [x8] == [x5] jump +2` — a *branching* step, no write |
+
+| | unoptimized (`000`) | trivially-simplified | final, gated |
 | --- | --- | --- | --- |
 | `statelessSendOnly` / `statefulPolarity` | true | true | true, out of checker reach |
-| `hasStepLayout` | **false** — four unchained steps | **true** — one step | **false** — padding row |
+| `hasStepLayout` | fused: **false** — unchained steps; single: **true** | **true** — one step | **false** — padding row |
 
-Both falsities are properties of the circuits, not the clause. The unoptimized stage is four
+The other two come out of the shipped benchmark corpus, which carries only the pre-gate stage, so
+they are audited at that one stage — the trivially-simplified column, where legality is actually
+claimed. Each reaches `opt_legalGuest`, and each brings a shape the first three do not have:
+
+| | what it is | what is new |
+| --- | --- | --- |
+| `Apcs/AndBranch/` | `apc_056_pc0x200bd4`: `andi` then branch-if-nonzero, two fused instructions | a masked write, byte-valued because a *lookup* says so (`isByte_of_andEq`), not because a constraint does |
+| `Apcs/LoadBranch/` | `apc_072_pc0x391014`: `loadw` then `beq`, two fused instructions | main memory — address space `2`, at a pointer the circuit computes, echoed on into a register |
+
+`LoadBranch` is why `ByteCheck.lean`'s `memShape` admits both byte-checked address spaces rather
+than registers alone: `MemoryPayload.isByteChecked` covers `1` and `2`, and a load's echo crosses
+from one to the other.
+
+Both falsities are properties of the circuits, not the clause, and they split cleanly. That the
+gated stage's padding row reproduces on a single-instruction APC says that gap is powdr's gating
+pass, not fusion. The unoptimized stage's failure is the opposite: it is entirely about fusion — a
+single-instruction `unopt` is already one step, has nothing to chain, and reaches `legalGuest` as
+it stands (`SingleXor.unopt_legalGuest`, `SingleBeq.unopt_legalGuest`), off the *raw* lt gadget
+powdr has not yet substituted away. The keccak block's unoptimized stage is four
 instruction steps whose bridge states do not cancel until powdr's substitution pass chains their
 timestamps (`from_state__timestamp_{i+1} = from_state__timestamp_i + d_i`); adding those three
-equations collapses it to the one step `039` already has
-(`apc2105000UnoptChained_hasStepLayout`). The final stage's padding gate makes the all-zero
-assignment algebraically satisfying with a bridge net of `0`, where a step's receive must net `-1`
-(`apc2105000Gated_not_hasStepLayout`); pinning `is_valid` restores it
-(`apc2105000GatedPinned_hasStepLayout`). Every "true" above is a decidable checker plus a
-soundness theorem (`Audit/SendOnlyPolarity.lean`), not a hand proof over the circuit.
+equations collapses it to the one step `039` already has (`unoptChained_hasStepLayout`). Every
+final stage's padding gate makes the all-zero assignment algebraically satisfying with a bridge net
+of `0`, where a step's receive must net `-1` (`gated_not_hasStepLayout`); pinning `is_valid`
+restores it (`gatedPinned_hasStepLayout`). Every "true" above is a decidable checker plus a soundness
+theorem (`Audit/SendOnlyPolarity.lean`), not a hand proof over the circuit.
 
 `Audit/LinForm.lean`, `BridgeCheck.lean`, `PlaceCheck.lean`, `ByteCheck.lean` are the checker
-layers `apc2105000Opt_hasStepLayout`'s proof is built from — normalizing expressions to linear
+layers `opt_hasStepLayout`'s proof is built from — normalizing expressions to linear
 form, then deciding the bridge shape, each interaction's offset (via a per-interaction `Recipe`),
 and the byte invariant, respectively — each exposing a soundness theorem as its audit surface and
 nothing about the search or arithmetic that produces its `Bool`.

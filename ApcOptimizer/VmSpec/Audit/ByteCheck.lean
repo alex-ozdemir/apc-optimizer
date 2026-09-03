@@ -25,10 +25,15 @@ variable {p : ℕ}
 
 --------- The memory-record shape ---------
 
-/-- A normalized payload in OpenVM's memory shape `(addr_space, ptr, d₀…d₃, t)`, with the address
-    space pinned to `1`. -/
+/-- Whether a form is a literal address space whose words OpenVM byte-range-checks: registers
+    (`1`) or main memory (`2`), the two `MemoryPayload.isByteChecked` names. -/
+def isByteCheckedConst (f : LinForm p) : Bool :=
+  f.coefs.all (· == 0) && (f.const.val == 1 || f.const.val == 2)
+
+/-- A normalized payload in OpenVM's memory shape `(addr_space, ptr, d₀…d₃, t)`, at a literal
+    byte-checked address space. -/
 def memShape : List (LinForm p) → Bool
-  | [f0, _, _, _, _, _, _] => f0.isConst 1
+  | [f0, _, _, _, _, _, _] => isByteCheckedConst f0
   | _ => false
 
 /-- Its four data limbs. -/
@@ -46,21 +51,23 @@ theorem isByte_of_isByteConst {vs : List Variable} {asg : Variable → ZMod p} {
   rw [LinForm.eval_of_coefs_zero vs f asg h.1]
   exact h.2
 
-/-- What a payload in memory shape evaluates to. -/
+/-- What a payload in memory shape evaluates to, and that its address space is one
+    `openVmPayloadOk` asks about. -/
 theorem memShape_eval {vs : List Variable} {rules : List (PinRule p)} {asg : ChipAssignment p}
     (hrules : ∀ q ∈ rules, q.1.eval asg = q.2) {es : List (Expression p)} {pl : List (LinForm p)}
     (hpl : payloadLin vs rules es = some pl) (hshape : memShape pl = true) :
-    ∃ (ptr ts : ZMod p) (d0 d1 d2 d3 : LinForm p),
-      dataLimbs pl = [d0, d1, d2, d3] ∧
+    ∃ (asp ptr ts : ZMod p) (d0 d1 d2 d3 : LinForm p),
+      dataLimbs pl = [d0, d1, d2, d3] ∧ (asp.val = 1 ∨ asp.val = 2) ∧
       es.map (fun e => e.eval asg)
-        = [1, ptr, d0.eval vs asg, d1.eval vs asg, d2.eval vs asg, d3.eval vs asg, ts] := by
+        = [asp, ptr, d0.eval vs asg, d1.eval vs asg, d2.eval vs asg, d3.eval vs asg, ts] := by
   match pl, hshape with
   | [f0, f1, f2, f3, f4, f5, f6], hshape =>
-    refine ⟨f1.eval vs asg, f6.eval vs asg, f2, f3, f4, f5, rfl, ?_⟩
+    simp only [memShape, isByteCheckedConst, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at hshape
+    refine ⟨f0.const, f1.eval vs asg, f6.eval vs asg, f2, f3, f4, f5, rfl, hshape.2, ?_⟩
     rw [payloadLin_eval hrules hpl]
     simp only [List.map_cons, List.map_nil, List.cons.injEq, and_true]
-    simp only [memShape, LinForm.isConst, Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at hshape
-    rw [LinForm.eval_of_coefs_zero vs f0 asg (by simpa using hshape.2), hshape.1]
+    exact LinForm.eval_of_coefs_zero vs f0 asg hshape.1
 
 --------- Witnesses ---------
 
@@ -79,18 +86,6 @@ inductive ByteWitness where
   /-- The caller proves it. -/
   | external
   deriving DecidableEq, Repr
-
-/-- Whether a multiplicity expression folds to something other than `1`. -/
-def multNotOne (rules : List (PinRule p)) (bi : BusInteraction (Expression p)) : Bool :=
-  match bi.multiplicity.foldConstWith rules with
-  | some v => !(v == 1)
-  | none => false
-
-/-- Whether it folds to something other than `0`. -/
-def multNotZero (rules : List (PinRule p)) (bi : BusInteraction (Expression p)) : Bool :=
-  match bi.multiplicity.foldConstWith rules with
-  | some v => !(v == 0)
-  | none => false
 
 /-- Check one interaction against its witness. -/
 def byteCheckOne (vs : List Variable) (rules : List (PinRule p))
@@ -204,16 +199,16 @@ theorem byteCheckOne_sound [Fact (1 < p)] {vs : List Variable} {rules : List (Pi
     | some pl =>
       rw [hpl] at h
       simp only [Bool.and_eq_true] at h
-      obtain ⟨ptr, ts, d0, d1, d2, d3, hdl, hev⟩ := memShape_eval hrules hpl h.1
+      obtain ⟨asp, ptr, ts, d0, d1, d2, d3, hdl, hasp, hev⟩ := memShape_eval hrules hpl h.1
       rw [hdl] at h
       simp only [List.all_cons, List.all_nil, Bool.and_eq_true] at h
       have hmsg : c.msgAt asg i
-          = ((1 : ℕ), [(1 : ZMod p), ptr, d0.eval vs asg, d1.eval vs asg, d2.eval vs asg,
+          = ((1 : ℕ), [asp, ptr, d0.eval vs asg, d1.eval vs asg, d2.eval vs asg,
               d3.eval vs asg, ts]) := by
         rw [Circuit.msgAt]
         exact Prod.ext hmem hev
       rw [hmsg]
-      exact (openVmPayloadOk_mem_iff _ _ _ _ _ _).mpr
+      exact (openVmPayloadOk_mem_iff_of_byteChecked hasp _ _ _ _ _ _).mpr
         ⟨isByte_of_isByteConst h.2.1, isByte_of_isByteConst h.2.2.1,
          isByte_of_isByteConst h.2.2.2.1, isByte_of_isByteConst h.2.2.2.2.1⟩
   | echo j =>
@@ -251,25 +246,27 @@ theorem byteCheckOne_sound [Fact (1 < p)] {vs : List Variable} {rules : List (Pi
           have hactj : c.activeStateful (openVmGuestRules defaultBusMap openVmMemBusId) asg
               ⟨j, hjlt⟩ := ⟨by rw [hget, hbjmem]; rfl, hmultj⟩
           have hlowj := hlow ⟨j, hjlt⟩ (Fin.lt_def.mpr hji) hactj
-          obtain ⟨ptri, tsi, a0, a1, a2, a3, hdli, hevi⟩ := memShape_eval hrules hpli hshi
-          obtain ⟨ptrj, tsj, b0, b1, b2, b3, hdlj, hevj⟩ := memShape_eval hrules hplj hshj
+          obtain ⟨aspi, ptri, tsi, a0, a1, a2, a3, hdli, haspi, hevi⟩ :=
+            memShape_eval hrules hpli hshi
+          obtain ⟨aspj, ptrj, tsj, b0, b1, b2, b3, hdlj, haspj, hevj⟩ :=
+            memShape_eval hrules hplj hshj
           rw [hdli, hdlj] at hdeq
           simp only [List.cons.injEq, and_true] at hdeq
           obtain ⟨e0, e1, e2, e3⟩ := hdeq
           have hmsgj : c.msgAt asg ⟨j, hjlt⟩
-              = ((1 : ℕ), [(1 : ZMod p), ptrj, b0.eval vs asg, b1.eval vs asg, b2.eval vs asg,
+              = ((1 : ℕ), [aspj, ptrj, b0.eval vs asg, b1.eval vs asg, b2.eval vs asg,
                   b3.eval vs asg, tsj]) := by
             rw [Circuit.msgAt, hget]
             exact Prod.ext hbjmem hevj
           have hmsgi : c.msgAt asg i
-              = ((1 : ℕ), [(1 : ZMod p), ptri, a0.eval vs asg, a1.eval vs asg, a2.eval vs asg,
+              = ((1 : ℕ), [aspi, ptri, a0.eval vs asg, a1.eval vs asg, a2.eval vs asg,
                   a3.eval vs asg, tsi]) := by
             rw [Circuit.msgAt]
             exact Prod.ext hmem hevi
           rw [hmsgj] at hlowj
           rw [hmsgi, e0, e1, e2, e3]
-          exact (openVmPayloadOk_mem_iff _ _ _ _ _ _).mpr
-            ((openVmPayloadOk_mem_iff _ _ _ _ _ _).mp hlowj)
+          exact (openVmPayloadOk_mem_iff_of_byteChecked haspi _ _ _ _ _ _).mpr
+            ((openVmPayloadOk_mem_iff_of_byteChecked haspj _ _ _ _ _ _).mp hlowj)
 
 /-- **`StepLayout.sendsOk`, from the witnesses.** Everything the check decides is discharged; the
     `external` indices are left to the caller, and for every other index that hypothesis is

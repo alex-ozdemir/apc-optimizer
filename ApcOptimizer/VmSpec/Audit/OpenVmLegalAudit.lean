@@ -43,19 +43,27 @@ namespace ApcOptimizer.OpenVM
 
 variable {p : ℕ}
 
-/-- `openVmPayloadOk` on a register record is exactly "the data limbs are bytes". Both directions
-    are used below: a receive hands one over, a send has to produce one. -/
-theorem openVmPayloadOk_mem_iff [Fact (1 < p)] (ptr d0 d1 d2 d3 ts : ZMod p) :
-    openVmPayloadOk (p := p) defaultBusMap (1, [1, ptr, d0, d1, d2, d3, ts]) ↔
+/-- `openVmPayloadOk` on a record in a byte-checked address space -- registers (`1`) or main
+    memory (`2`), the two `MemoryPayload.isByteChecked` names -- is exactly "the data limbs are
+    bytes". Both directions are used below: a receive hands one over, a send has to produce one. -/
+theorem openVmPayloadOk_mem_iff_of_byteChecked {asp : ZMod p}
+    (hasp : asp.val = 1 ∨ asp.val = 2) (ptr d0 d1 d2 d3 ts : ZMod p) :
+    openVmPayloadOk (p := p) defaultBusMap (1, [asp, ptr, d0, d1, d2, d3, ts]) ↔
       (isByte d0 ∧ isByte d1 ∧ isByte d2 ∧ isByte d3) := by
   simp only [openVmPayloadOk, defaultBusMap, memoryPayload?]
   constructor
   · intro h
-    have h' := h (Or.inl (ZMod.val_one p))
+    have h' := h hasp
     exact ⟨h' _ (by simp), h' _ (by simp), h' _ (by simp), h' _ (by simp)⟩
   · rintro ⟨h0, h1, h2, h3⟩ - d hd
     simp at hd
     rcases hd with rfl | rfl | rfl | rfl <;> assumption
+
+/-- The register (`1`) case, which most of this file's shapes are in. -/
+theorem openVmPayloadOk_mem_iff [Fact (1 < p)] (ptr d0 d1 d2 d3 ts : ZMod p) :
+    openVmPayloadOk (p := p) defaultBusMap (1, [1, ptr, d0, d1, d2, d3, ts]) ↔
+      (isByte d0 ∧ isByte d1 ∧ isByte d2 ∧ isByte d3) :=
+  openVmPayloadOk_mem_iff_of_byteChecked (Or.inl (ZMod.val_one p)) ptr d0 d1 d2 d3 ts
 
 --------- The read-echo shape ---------
 
