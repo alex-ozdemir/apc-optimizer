@@ -230,8 +230,9 @@ ApcOptimizer.OpenVM.Keccak2105000.unoptByteCheck
 ApcOptimizer.OpenVM.Keccak2105000.unoptChained_memSendsOk
 
 # The two single-instruction APCs (`Audit/Apcs/SingleXor/`, `Audit/Apcs/SingleBeq/`), audited at
-# the same stages as the keccak block over the same `Apcs/Common.lean`. Their roots are the same
-# per-stage results; nothing new is shared.
+# the same stages as the keccak block over the same `Apcs/Common.lean`. One step each, so their
+# *unoptimized* stage has a step layout too -- the roots below include `unopt_legalGuest`, which
+# the fused block only reaches after chaining.
 ApcOptimizer.OpenVM.SingleXor.gated_checkMultiplicities_fails
 ApcOptimizer.OpenVM.SingleXor.gated_satisfiesAlgebraic_zero
 ApcOptimizer.OpenVM.SingleXor.gated_mults_zero_on_padding
@@ -267,6 +268,25 @@ ApcOptimizer.OpenVM.SingleXor.opt_legalGuest
 ApcOptimizer.OpenVM.SingleXor.unopt_checkMultiplicitiesWith
 ApcOptimizer.OpenVM.SingleXor.unopt_legalMultiplicities
 ApcOptimizer.OpenVM.SingleXor.unopt_zero_not_satisfiesAlgebraic
+ApcOptimizer.OpenVM.SingleXor.unoptPins
+ApcOptimizer.OpenVM.SingleXor.unoptLookback_r1
+ApcOptimizer.OpenVM.SingleXor.unoptLookback_r2
+ApcOptimizer.OpenVM.SingleXor.unoptLookback_w
+ApcOptimizer.OpenVM.SingleXor.unoptAluCase
+ApcOptimizer.OpenVM.SingleXor.unoptWriteIsByte
+ApcOptimizer.OpenVM.SingleXor.unoptVars
+ApcOptimizer.OpenVM.SingleXor.unoptBaseF
+ApcOptimizer.OpenVM.SingleXor.unoptPinRules
+ApcOptimizer.OpenVM.SingleXor.unoptPinRules_hold
+ApcOptimizer.OpenVM.SingleXor.unoptBaseLin
+ApcOptimizer.OpenVM.SingleXor.unoptBridgeCheck
+ApcOptimizer.OpenVM.SingleXor.unoptOffsets
+ApcOptimizer.OpenVM.SingleXor.unoptOffsetUb
+ApcOptimizer.OpenVM.SingleXor.unoptOffsetUb_dominates
+ApcOptimizer.OpenVM.SingleXor.unoptWitnesses
+ApcOptimizer.OpenVM.SingleXor.unoptByteCheck
+ApcOptimizer.OpenVM.SingleXor.unopt_hasStepLayout
+ApcOptimizer.OpenVM.SingleXor.unopt_legalGuest
 
 # `SingleBeq` writes nothing, so its byte invariant is entirely decidable.
 ApcOptimizer.OpenVM.SingleBeq.gated_checkMultiplicities_fails
@@ -304,6 +324,22 @@ ApcOptimizer.OpenVM.SingleBeq.opt_legalGuest
 ApcOptimizer.OpenVM.SingleBeq.unopt_checkMultiplicitiesWith
 ApcOptimizer.OpenVM.SingleBeq.unopt_legalMultiplicities
 ApcOptimizer.OpenVM.SingleBeq.unopt_zero_not_satisfiesAlgebraic
+ApcOptimizer.OpenVM.SingleBeq.unoptFlagSum
+ApcOptimizer.OpenVM.SingleBeq.unoptLookback_r1
+ApcOptimizer.OpenVM.SingleBeq.unoptLookback_r2
+ApcOptimizer.OpenVM.SingleBeq.unoptVars
+ApcOptimizer.OpenVM.SingleBeq.unoptBaseF
+ApcOptimizer.OpenVM.SingleBeq.unoptPinRules
+ApcOptimizer.OpenVM.SingleBeq.unoptPinRules_hold
+ApcOptimizer.OpenVM.SingleBeq.unoptBaseLin
+ApcOptimizer.OpenVM.SingleBeq.unoptBridgeCheck
+ApcOptimizer.OpenVM.SingleBeq.unoptOffsets
+ApcOptimizer.OpenVM.SingleBeq.unoptOffsetUb
+ApcOptimizer.OpenVM.SingleBeq.unoptOffsetUb_dominates
+ApcOptimizer.OpenVM.SingleBeq.unoptWitnesses
+ApcOptimizer.OpenVM.SingleBeq.unoptByteCheck
+ApcOptimizer.OpenVM.SingleBeq.unopt_hasStepLayout
+ApcOptimizer.OpenVM.SingleBeq.unopt_legalGuest
 
 # `Legal.lean`'s `memOrdered`/`memSendsOk` restriction to the memory bus (added alongside
 # `GuestBusRules.memPayloadOnly`, which settles every other stateful bus outright): the general

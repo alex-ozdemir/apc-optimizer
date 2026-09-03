@@ -144,12 +144,14 @@ about the block:
 | | unoptimized (`000`) | trivially-simplified | final, gated |
 | --- | --- | --- | --- |
 | `statelessSendOnly` / `statefulPolarity` | true | true | true, out of checker reach |
-| `hasStepLayout` | fused: **false** — unchained steps | **true** — one step | **false** — padding row |
+| `hasStepLayout` | fused: **false** — unchained steps; single: **true** | **true** — one step | **false** — padding row |
 
-Both falsities are properties of the circuits, not the clause. That the gated stage's padding row
-reproduces on a single-instruction APC says that gap is powdr's gating pass, not fusion; the
-unoptimized stage's failure, by contrast, is exactly about fusion — a single-instruction `unopt` is
-already one step and has nothing to chain. The keccak block's unoptimized stage is four
+Both falsities are properties of the circuits, not the clause, and they split cleanly. That the
+gated stage's padding row reproduces on a single-instruction APC says that gap is powdr's gating
+pass, not fusion. The unoptimized stage's failure is the opposite: it is entirely about fusion — a
+single-instruction `unopt` is already one step, has nothing to chain, and reaches `legalGuest` as
+it stands (`SingleXor.unopt_legalGuest`, `SingleBeq.unopt_legalGuest`), off the *raw* lt gadget
+powdr has not yet substituted away. The keccak block's unoptimized stage is four
 instruction steps whose bridge states do not cancel until powdr's substitution pass chains their
 timestamps (`from_state__timestamp_{i+1} = from_state__timestamp_i + d_i`); adding those three
 equations collapses it to the one step `039` already has (`unoptChained_hasStepLayout`). Every

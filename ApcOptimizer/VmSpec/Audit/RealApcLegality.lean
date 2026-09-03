@@ -60,13 +60,13 @@ import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.GatedPinned
     | --- | --- | --- | --- |
     | `statelessSendOnly` | **true** | **true** | true, out of checker reach |
     | `statefulPolarity` | **true** | **true** | true, out of checker reach |
-    | `hasStepLayout` | fused: **false** | **true** | **false**, padding row |
+    | `hasStepLayout` | fused: **false**; single: **true** | **true** | **false**, padding row |
 
-    The same table holds for all three APCs, which is the point: the two falsities are properties
-    of powdr's pipeline, not of any one block. The gated stage's padding row reproduces on a
-    single-instruction APC exactly as on a fused block, so that gap is the gating pass rather than
-    anything about fusion; the unoptimized stage's failure, by contrast, *is* about fusion, and a
-    single-instruction `unopt` has nothing to chain.
+    The two falsities split cleanly. The gated stage's padding row reproduces on a
+    single-instruction APC exactly as on a fused block, so *that* gap is powdr's gating pass, not
+    fusion. The unoptimized stage's failure is the opposite: it is entirely about fusion — a
+    single-instruction `unopt` is already one step, has nothing to chain, and reaches `legalGuest`
+    as it stands (`SingleXor.unopt_legalGuest`, `SingleBeq.unopt_legalGuest`).
 
     Every "true" is discharged by `Audit/SendOnlyPolarity.lean`'s decidable checker and its
     soundness theorem — a `Bool` and a `rfl`, with no case analysis over the circuit written by
