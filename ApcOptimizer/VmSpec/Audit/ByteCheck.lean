@@ -80,18 +80,6 @@ inductive ByteWitness where
   | external
   deriving DecidableEq, Repr
 
-/-- Whether a multiplicity expression folds to something other than `1`. -/
-def multNotOne (rules : List (PinRule p)) (bi : BusInteraction (Expression p)) : Bool :=
-  match bi.multiplicity.foldConstWith rules with
-  | some v => !(v == 1)
-  | none => false
-
-/-- Whether it folds to something other than `0`. -/
-def multNotZero (rules : List (PinRule p)) (bi : BusInteraction (Expression p)) : Bool :=
-  match bi.multiplicity.foldConstWith rules with
-  | some v => !(v == 0)
-  | none => false
-
 /-- Check one interaction against its witness. -/
 def byteCheckOne (vs : List Variable) (rules : List (PinRule p))
     (L : List (BusInteraction (Expression p))) (i : ℕ)

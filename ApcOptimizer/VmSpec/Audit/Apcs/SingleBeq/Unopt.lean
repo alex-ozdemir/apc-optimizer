@@ -45,62 +45,6 @@ theorem unoptFlagSum {asg : ChipAssignment babyBear} (halg : unopt.satisfiesAlge
   rw [babyBear_negOne] at h
   linear_combination -h
 
-/-- The `rs1` read, whose echo sends at offset `0`: constraint `9` is the gadget's own equation,
-    which powdr's substitution pass has not yet removed, so the offset comes off
-    `gadgetLookback_raw` rather than off the surviving range check. -/
-theorem unoptLookback_r1 {asg : ChipAssignment babyBear}
-    (halg : unopt.satisfiesAlgebraic asg) (hacc : unopt.satisfiesStateless apcRules asg) :
-    ∃ n : ℕ, n < 2 ^ 29 ∧
-      asg ⟨"reads_aux__0__base__prev_timestamp_0", some 4⟩
-        = asg ⟨"from_state__timestamp_0", some 1⟩ + ((((-1) - (n : ℤ)) : ℤ) : ZMod babyBear) := by
-  have hgate := unoptFlagSum halg
-  have hcon := halg _ (List.getElem_mem (show 9 < unopt.algebraicConstraints.length by decide))
-  simp only [unopt, List.getElem_cons_succ, List.getElem_cons_zero, Expression.eval] at hcon
-  rw [babyBear_negOne] at hcon
-  have heq := gadgetLookback_raw (δ := 0)
-    (ts := asg ⟨"from_state__timestamp_0", some 1⟩)
-    (prev := asg ⟨"reads_aux__0__base__prev_timestamp_0", some 4⟩)
-    (lo := asg ⟨"reads_aux__0__base__timestamp_lt_aux__lower_decomp__0_0", some 5⟩)
-    (hi := asg ⟨"reads_aux__0__base__timestamp_lt_aux__lower_decomp__1_0", some 6⟩)
-    hgate (by linear_combination hcon)
-  have hlo := accepts_congr_mult3 (m2 := 1)
-    (acceptsAt hacc 0 (by decide) _ rfl rfl (sum2_eq1_ne_zero hgate))
-  have hhi := accepts_congr_mult3 (m2 := 1)
-    (acceptsAt hacc 1 (by decide) _ rfl rfl (sum2_eq1_ne_zero hgate))
-  simp only [Expression.eval] at hlo hhi
-  obtain ⟨n, -, hn29, hplace⟩ := lt_gadget_offset (-1)
-    (asg ⟨"reads_aux__0__base__prev_timestamp_0", some 4⟩)
-    (asg ⟨"from_state__timestamp_0", some 1⟩) hlo hhi
-    (by push_cast at heq ⊢; linear_combination heq)
-  exact ⟨n, hn29, hplace⟩
-
-/-- The `rs2` read, whose echo sends at offset `1`: constraint `10`. -/
-theorem unoptLookback_r2 {asg : ChipAssignment babyBear}
-    (halg : unopt.satisfiesAlgebraic asg) (hacc : unopt.satisfiesStateless apcRules asg) :
-    ∃ n : ℕ, n < 2 ^ 29 ∧
-      asg ⟨"reads_aux__1__base__prev_timestamp_0", some 7⟩
-        = asg ⟨"from_state__timestamp_0", some 1⟩ + (((0 - (n : ℤ)) : ℤ) : ZMod babyBear) := by
-  have hgate := unoptFlagSum halg
-  have hcon := halg _ (List.getElem_mem (show 10 < unopt.algebraicConstraints.length by decide))
-  simp only [unopt, List.getElem_cons_succ, List.getElem_cons_zero, Expression.eval] at hcon
-  rw [babyBear_negOne] at hcon
-  have heq := gadgetLookback_raw (δ := 1)
-    (ts := asg ⟨"from_state__timestamp_0", some 1⟩)
-    (prev := asg ⟨"reads_aux__1__base__prev_timestamp_0", some 7⟩)
-    (lo := asg ⟨"reads_aux__1__base__timestamp_lt_aux__lower_decomp__0_0", some 8⟩)
-    (hi := asg ⟨"reads_aux__1__base__timestamp_lt_aux__lower_decomp__1_0", some 9⟩)
-    hgate (by linear_combination hcon)
-  have hlo := accepts_congr_mult3 (m2 := 1)
-    (acceptsAt hacc 4 (by decide) _ rfl rfl (sum2_eq1_ne_zero hgate))
-  have hhi := accepts_congr_mult3 (m2 := 1)
-    (acceptsAt hacc 5 (by decide) _ rfl rfl (sum2_eq1_ne_zero hgate))
-  simp only [Expression.eval] at hlo hhi
-  obtain ⟨n, -, hn29, hplace⟩ := lt_gadget_offset 0
-    (asg ⟨"reads_aux__1__base__prev_timestamp_0", some 7⟩)
-    (asg ⟨"from_state__timestamp_0", some 1⟩) hlo hhi
-    (by push_cast at heq ⊢; linear_combination heq)
-  exact ⟨n, hn29, hplace⟩
-
 /-- The variables the unoptimized APC's stateful payloads mention: the optimized stage's list plus
     the register pointers, the branch immediate and the `pc`, none of which powdr has folded away
     yet. -/
@@ -133,18 +77,28 @@ theorem unoptBridgeCheck :
           (.mul (.const 2) (.var ⟨"cmp_result_0", some 18⟩))))
       = true := by decide
 
-/-- Where each of the unoptimized APC's six stateful interactions sits. powdr emits the two lt
-    gadgets' range checks *before* the access they date and the bridge last, so the order is not
-    the optimized stage's. -/
-def unoptOffsets (nr0 nr1 : ℕ) : List ℤ :=
-  [0, 0, -1 - (nr0 : ℤ), 0, 0, 0, -(nr1 : ℤ), 1, 0, 0, 2]
+/-- Where each interaction sits, as a `Recipe`. powdr emits each lt gadget's range checks *before*
+    the access they date and the bridge last, so the order is not the optimized stage's. -/
+def unoptRecipes : List (Recipe babyBear) :=
+  [.fixed 0, .fixed 0,
+   .lookback (-1) 131072 (.var ⟨"reads_aux__0__base__timestamp_lt_aux__lower_decomp__0_0", some 5⟩)
+     (.var ⟨"reads_aux__0__base__timestamp_lt_aux__lower_decomp__1_0", some 6⟩),
+   .fixed 0, .fixed 0, .fixed 0,
+   .lookback 0 131072 (.var ⟨"reads_aux__1__base__timestamp_lt_aux__lower_decomp__0_0", some 8⟩)
+     (.var ⟨"reads_aux__1__base__timestamp_lt_aux__lower_decomp__1_0", some 9⟩),
+   .fixed 1, .fixed 0, .fixed 0, .fixed 2]
 
-/-- As in `Layout.lean`, only the memory bus is read off this table, so the lookups and the two
-    bridge entries are free to sit below every memory send. -/
-def unoptOffsetUb : List ℤ := [-2, -2, -1, 0, 0, 0, 0, 1, 0, 0, 2]
+theorem unoptPlaceCheck :
+    placeCheckAll unoptVars unoptPinRules apcRules.isStateful openVmTsPos unoptBaseF
+      unopt.busInteractions unoptRecipes = true := by decide
 
-theorem unoptOffsetUb_dominates :
-    ∀ b ∈ [3, 7], ∀ k < b, unoptOffsetUb.getD k 0 < unoptOffsetUb.getD b 0 := by decide
+theorem unoptOrderCheck :
+    memOrderCheck unoptPinRules openVmMemBusId openVmTimestampBound unopt.busInteractions
+      unoptRecipes = true := by decide
+
+theorem unoptFitsCheck :
+    (List.range unopt.busInteractions.length).all
+      (fun i => (unoptRecipes.getD i (.fixed 0)).fits openVmTimestampBound 2) = true := by decide
 
 /-- Both memory sends echo the read that preceded them; the register-file lookup on bus `2` and
     the four range checks are not stateful, and the bridge send is not memory. -/
@@ -155,91 +109,68 @@ def unoptWitnesses : List ByteWitness :=
 theorem unoptByteCheck :
     byteCheckAll unoptVars unoptPinRules unopt.busInteractions unoptWitnesses = true := by decide
 
+/-- Where each memory receive reaches back to. powdr's substitution pass has not run, so the
+    offsets come off the *raw* gadget constraint (`gadgetLookback_raw`) rather than off a surviving
+    range-check payload. Constraints are addressed by index rather than restated. -/
+theorem unoptLookbacks {asg : ChipAssignment babyBear}
+    (halg : unopt.satisfiesAlgebraic asg) (hacc : unopt.satisfiesStateless apcRules asg)
+    (i : Fin unopt.busInteractions.length) (k : ℤ) (radix : ℕ) (loE hiE : Expression babyBear)
+    (hrc : unoptRecipes.getD i.val (.fixed 0) = .lookback k radix loE hiE) :
+    (unoptRecipes.getD i.val (.fixed 0)).back asg < openVmTimestampBound ∧
+      apcRules.getTimestamp (unopt.msgAt asg i)
+        = baseE.eval asg
+          + (((unoptRecipes.getD i.val (.fixed 0)).place asg : ℤ) : ZMod babyBear) := by
+  have hgate := unoptFlagSum halg
+  fin_cases i
+  case «2» =>
+    have hcon := halg _ (List.getElem_mem (show 9 < unopt.algebraicConstraints.length by decide))
+    simp only [unopt, List.getElem_cons_succ, List.getElem_cons_zero, Expression.eval] at hcon
+    rw [babyBear_negOne] at hcon
+    have heq := gadgetLookback_raw (δ := 0)
+      (ts := asg ⟨"from_state__timestamp_0", some 1⟩)
+      (prev := asg ⟨"reads_aux__0__base__prev_timestamp_0", some 4⟩)
+      (lo := asg ⟨"reads_aux__0__base__timestamp_lt_aux__lower_decomp__0_0", some 5⟩) (hi := asg ⟨"reads_aux__0__base__timestamp_lt_aux__lower_decomp__1_0", some 6⟩)
+      hgate (by linear_combination hcon)
+    have hlo := accepts_congr_mult3 (m2 := 1)
+      (acceptsAt hacc 0 (by decide) _ rfl rfl (sum2_eq1_ne_zero hgate))
+    have hhi := accepts_congr_mult3 (m2 := 1)
+      (acceptsAt hacc 1 (by decide) _ rfl rfl (sum2_eq1_ne_zero hgate))
+    simp only [Expression.eval] at hlo hhi
+    exact lookback_of_limbs (k := (-1)) (baseE := baseE)
+      (tsE := .var ⟨"reads_aux__0__base__prev_timestamp_0", some 4⟩)
+      (loE := .var ⟨"reads_aux__0__base__timestamp_lt_aux__lower_decomp__0_0", some 5⟩) (hiE := .var ⟨"reads_aux__0__base__timestamp_lt_aux__lower_decomp__1_0", some 6⟩)
+      hlo hhi (by simp only [baseE, Expression.eval]; push_cast at heq ⊢; linear_combination heq)
+  case «6» =>
+    have hcon := halg _ (List.getElem_mem (show 10 < unopt.algebraicConstraints.length by decide))
+    simp only [unopt, List.getElem_cons_succ, List.getElem_cons_zero, Expression.eval] at hcon
+    rw [babyBear_negOne] at hcon
+    have heq := gadgetLookback_raw (δ := 1)
+      (ts := asg ⟨"from_state__timestamp_0", some 1⟩)
+      (prev := asg ⟨"reads_aux__1__base__prev_timestamp_0", some 7⟩)
+      (lo := asg ⟨"reads_aux__1__base__timestamp_lt_aux__lower_decomp__0_0", some 8⟩) (hi := asg ⟨"reads_aux__1__base__timestamp_lt_aux__lower_decomp__1_0", some 9⟩)
+      hgate (by linear_combination hcon)
+    have hlo := accepts_congr_mult3 (m2 := 1)
+      (acceptsAt hacc 4 (by decide) _ rfl rfl (sum2_eq1_ne_zero hgate))
+    have hhi := accepts_congr_mult3 (m2 := 1)
+      (acceptsAt hacc 5 (by decide) _ rfl rfl (sum2_eq1_ne_zero hgate))
+    simp only [Expression.eval] at hlo hhi
+    exact lookback_of_limbs (k := 0) (baseE := baseE)
+      (tsE := .var ⟨"reads_aux__1__base__prev_timestamp_0", some 7⟩)
+      (loE := .var ⟨"reads_aux__1__base__timestamp_lt_aux__lower_decomp__0_0", some 8⟩) (hiE := .var ⟨"reads_aux__1__base__timestamp_lt_aux__lower_decomp__1_0", some 9⟩)
+      hlo hhi (by simp only [baseE, Expression.eval]; push_cast at heq ⊢; linear_combination heq)
+  all_goals simp [unoptRecipes] at hrc
+
 /-- **The unoptimized APC already has a step layout.** One instruction is one step: there are no
     intermediate bridge states to cancel, so unlike `Keccak2105000.unopt` this needs no chaining
     modification, and `Circuit.legalGuest` holds at *every* stage of this APC's pipeline except the
-    gated output. Its two receives are placed off the raw lt gadget powdr has not yet substituted
-    away. -/
+    gated output. -/
 theorem unopt_hasStepLayout {maxWindow : ℕ} (hw : 2 < maxWindow) :
-    unopt.hasStepLayout apcRules maxWindow openVmTimestampBound := by
-  haveI : Fact (1 < babyBear) := ⟨by decide⟩
-  intro asg halg hacc
-  have hgate := unoptFlagSum halg
-  obtain ⟨nr0, hnr0, htr0⟩ := unoptLookback_r1 halg hacc
-  obtain ⟨nr1, hnr1, htr1⟩ := unoptLookback_r2 halg hacc
-  have hub : ∀ i : Fin unopt.busInteractions.length, unopt.activeMem apcRules asg i →
-      (unoptOffsets nr0 nr1).getD i.val 0 ≤ unoptOffsetUb.getD i.val 0 := by
-    intro i hi
-    obtain ⟨⟨hst, -⟩, hmem⟩ := hi
-    fin_cases i <;>
-      simp [unoptOffsets, unoptOffsetUb, unopt, apcRules, openVmGuestRules, openVmIsStateful,
-        defaultBusMap, OpenVmBusType.isStateful, openVmMemBusId] at hst hmem ⊢
-  have hsendIdx : ∀ i : Fin unopt.busInteractions.length, unopt.memSend apcRules asg i →
-      i.val ∈ [3, 7] ∧
-        (unoptOffsets nr0 nr1).getD i.val 0 = unoptOffsetUb.getD i.val 0 := by
-    intro i hi
-    obtain ⟨⟨hst, hm⟩, hmem⟩ := hi
-    fin_cases i <;>
-      simp_all [unoptOffsets, unoptOffsetUb, unopt, apcRules, openVmGuestRules, openVmIsStateful,
-        defaultBusMap, OpenVmBusType.isStateful, openVmMemBusId, Circuit.multAt,
-        BusInteraction.eval, Expression.eval, babyBear_negOne_ne_one]
-  obtain ⟨hrecv, hsend, hother⟩ :=
-    bridgeCheck_sound unoptBridgeCheck (unoptPinRules_hold asg halg)
-  refine ⟨_, _, _, 2, by norm_num, hw, hrecv, hsend, hother,
-    fun i => (unoptOffsets nr0 nr1).getD i.val 0, ?_, ?_⟩
-  · -- The placement, offset by offset.
-    rintro i ⟨hst, hm⟩
-    fin_cases i
-    · simp [unopt, apcRules, openVmGuestRules, openVmIsStateful, defaultBusMap,
-        OpenVmBusType.isStateful] at hst
-    · simp [unopt, apcRules, openVmGuestRules, openVmIsStateful, defaultBusMap,
-        OpenVmBusType.isStateful] at hst
-    · exact ⟨by simp [unoptOffsets, openVmTimestampBound, openVmTimestampBits]; omega,
-        by simp [unoptOffsets]; omega,
-        by simpa [unoptOffsets, baseE, unopt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt] using htr0⟩
-    · exact ⟨by simp [unoptOffsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [unoptOffsets],
-        by simp [unoptOffsets, baseE, unopt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt]⟩
-    · simp [unopt, apcRules, openVmGuestRules, openVmIsStateful, defaultBusMap,
-        OpenVmBusType.isStateful] at hst
-    · simp [unopt, apcRules, openVmGuestRules, openVmIsStateful, defaultBusMap,
-        OpenVmBusType.isStateful] at hst
-    · exact ⟨by simp [unoptOffsets, openVmTimestampBound, openVmTimestampBits]; omega,
-        by simp [unoptOffsets],
-        by simpa [unoptOffsets, baseE, unopt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt] using htr1⟩
-    · exact ⟨by simp [unoptOffsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [unoptOffsets],
-        by simp [unoptOffsets, baseE, unopt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt]⟩
-    · simp [unopt, apcRules, openVmGuestRules, openVmIsStateful, defaultBusMap,
-        OpenVmBusType.isStateful] at hst
-    · exact ⟨by simp [unoptOffsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [unoptOffsets],
-        by simp [unoptOffsets, baseE, unopt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt, openVmMemBusId, openVmExecBusId]⟩
-    · exact ⟨by simp [unoptOffsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [unoptOffsets],
-        by simp [unoptOffsets, baseE, unopt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt, openVmMemBusId, openVmExecBusId]⟩
-  · -- The byte invariant, entirely by static analysis: every memory send is an echo.
-    intro i hsend hlow
-    have hordered : ∀ j : Fin unopt.busInteractions.length, j < i →
-        unopt.activeMem apcRules asg j →
-        apcRules.payloadOk (unopt.msgAt asg j) := by
-      intro j hji hactj
-      obtain ⟨hmem, heq⟩ := hsendIdx i hsend
-      refine hlow j ?_ hactj
-      show (unoptOffsets nr0 nr1).getD j.val 0 < (unoptOffsets nr0 nr1).getD i.val 0
-      rw [heq]
-      exact lt_of_le_of_lt (hub j hactj)
-        (unoptOffsetUb_dominates i.val hmem j.val (Fin.lt_def.mp hji))
-    refine memSendsOk_of_sendsOk
-      (byteCheck_sendsOk (unoptPinRules_hold asg halg) unoptByteCheck ?_) i hsend hordered
-    intro i hi _ _
-    fin_cases i <;> exact absurd hi (by decide)
+    unopt.hasStepLayout apcRules maxWindow openVmTimestampBound :=
+  hasStepLayout_of_checks (by norm_num) hw (fun _ halg => unoptPinRules_hold _ halg) unoptBaseLin
+    (fun asg halg => bridgeCheck_sound unoptBridgeCheck (unoptPinRules_hold asg halg))
+    unoptPlaceCheck unoptOrderCheck unoptFitsCheck unoptByteCheck
+    (fun _ halg hacc => unoptLookbacks halg hacc)
+    (fun _ _ _ i hi _ _ => by fin_cases i <;> exact absurd hi (by decide))
 
 theorem unopt_legalGuest {maxWindow maxInteractions : ℕ} (hw : 2 < maxWindow)
     (hi : 11 ≤ maxInteractions) :

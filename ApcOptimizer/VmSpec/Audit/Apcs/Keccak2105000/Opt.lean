@@ -65,79 +65,88 @@ theorem optBridgeCheck :
 theorem optByteCheck :
     byteCheckAll layoutVars optPinRules opt.busInteractions witnesses = true := by decide
 
-/-- **A real optimized APC has a step layout.** One arc — `(2105000, t) → (2105016 - 192·cmp,
-    t + 11)` — and the twelve stateful interactions placed at `offsets`, read off the five
-    surviving lt gadgets (`lt_gadget_offset`). Its five memory sends are byte-valued: four echo a
-    receive earlier in the same step, and the fifth is the masked value the bitwise table checks
-    (`isByte_of_xorThree`).
+/-- Where each interaction sits, as a `Recipe`: the five surviving lt gadgets place their memory
+    receives, everything else sits at a literal tick. Position `7` and `13`–`22` are the stateless
+    lookups, which no clause reads. -/
+def recipes : List (Recipe babyBear) :=
+  [.lookback (-1) 131072 (payloadOf opt 13 0) (payloadOf opt 14 0), .fixed 0,
+   .lookback 1 131072 (payloadOf opt 15 0) (payloadOf opt 16 0), .fixed 0,
+   .lookback 2 131072 (payloadOf opt 17 0) (payloadOf opt 18 0),
+   .lookback 4 131072 (payloadOf opt 19 0) (payloadOf opt 20 0),
+   .fixed 5, .fixed 0, .fixed 6, .fixed 9,
+   .lookback 9 131072 (payloadOf opt 21 0) (payloadOf opt 22 0),
+   .fixed 10, .fixed 11] ++ List.replicate 10 (.fixed 0)
 
-    This is finding G's memory half, closed. The clause the old `Circuit.advancesClock` failed on
-    every APC — memory strictly inside `(base, base + d)` — is gone; what replaces it, an integer
-    offset in `[-2 ^ 29, 11]` with the sends ordered, this circuit satisfies. -/
-theorem opt_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWindow) :
-    opt.hasStepLayout apcRules maxWindow openVmTimestampBound := by
-  haveI : Fact (1 < babyBear) := ⟨by decide⟩
-  intro asg halg hacc
-  obtain ⟨n0, hn0, ht0⟩ : ∃ n : ℕ, n < 2 ^ 29 ∧
-      asg ⟨"reads_aux__0__base__prev_timestamp_0", some 6⟩
-        = asg ⟨"from_state__timestamp_0", some 1⟩ + ((((-1) - (n : ℤ)) : ℤ) : ZMod babyBear) := by
-    obtain ⟨hb, ht⟩ := lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
+theorem optPlaceCheck :
+    placeCheckAll layoutVars optPinRules apcRules.isStateful openVmTsPos baseF
+      opt.busInteractions recipes = true := by decide
+
+theorem optOrderCheck :
+    memOrderCheck optPinRules openVmMemBusId openVmTimestampBound opt.busInteractions recipes
+      = true := by decide
+
+theorem optFitsCheck :
+    (List.range opt.busInteractions.length).all
+      (fun i => (recipes.getD i (.fixed 0)).fits openVmTimestampBound 11) = true := by decide
+
+/-- Where each of the five memory receives reaches back to, off its own lt gadget. -/
+theorem optLookbacks {asg : ChipAssignment babyBear}
+    (halg : opt.satisfiesAlgebraic asg) (hacc : opt.satisfiesStateless apcRules asg)
+    (i : Fin opt.busInteractions.length) (k : ℤ) (radix : ℕ) (loE hiE : Expression babyBear)
+    (hrc : recipes.getD i.val (.fixed 0) = .lookback k radix loE hiE) :
+    (recipes.getD i.val (.fixed 0)).back asg < openVmTimestampBound ∧
+      apcRules.getTimestamp (opt.msgAt asg i)
+        = baseE.eval asg + (((recipes.getD i.val (.fixed 0)).place asg : ℤ) : ZMod babyBear) := by
+  fin_cases i
+  case «0» =>
+    exact lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
       (baseE := baseE) (baseF := baseF) (k := (-1))
       (tsE := .var ⟨"reads_aux__0__base__prev_timestamp_0", some 6⟩)
       (loE := payloadOf opt 13 0) (hiE := payloadOf opt 14 0)
       (optPinRules_hold asg halg) optBaseLin (by decide)
       (acceptsAt hacc 13 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
       (acceptsAt hacc 14 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
-    rw [Recipe.place_eq] at ht
-    exact ⟨_, hb, ht⟩
-  obtain ⟨nw0, hnw0, htw0⟩ : ∃ n : ℕ, n < 2 ^ 29 ∧
-      asg ⟨"writes_aux__base__prev_timestamp_0", some 12⟩
-        = asg ⟨"from_state__timestamp_0", some 1⟩ + (((1 - (n : ℤ)) : ℤ) : ZMod babyBear) := by
-    obtain ⟨hb, ht⟩ := lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
+  case «2» =>
+    exact lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
       (baseE := baseE) (baseF := baseF) (k := 1)
       (tsE := .var ⟨"writes_aux__base__prev_timestamp_0", some 12⟩)
       (loE := payloadOf opt 15 0) (hiE := payloadOf opt 16 0)
       (optPinRules_hold asg halg) optBaseLin (by decide)
       (acceptsAt hacc 15 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
       (acceptsAt hacc 16 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
-    rw [Recipe.place_eq] at ht
-    exact ⟨_, hb, ht⟩
-  obtain ⟨nr1, hnr1, htr1⟩ : ∃ n : ℕ, n < 2 ^ 29 ∧
-      asg ⟨"reads_aux__0__base__prev_timestamp_1", some 42⟩
-        = asg ⟨"from_state__timestamp_0", some 1⟩ + (((2 - (n : ℤ)) : ℤ) : ZMod babyBear) := by
-    obtain ⟨hb, ht⟩ := lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
+  case «4» =>
+    exact lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
       (baseE := baseE) (baseF := baseF) (k := 2)
       (tsE := .var ⟨"reads_aux__0__base__prev_timestamp_1", some 42⟩)
       (loE := payloadOf opt 17 0) (hiE := payloadOf opt 18 0)
       (optPinRules_hold asg halg) optBaseLin (by decide)
       (acceptsAt hacc 17 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
       (acceptsAt hacc 18 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
-    rw [Recipe.place_eq] at ht
-    exact ⟨_, hb, ht⟩
-  obtain ⟨nw1, hnw1, htw1⟩ : ∃ n : ℕ, n < 2 ^ 29 ∧
-      asg ⟨"writes_aux__base__prev_timestamp_1", some 48⟩
-        = asg ⟨"from_state__timestamp_0", some 1⟩ + (((4 - (n : ℤ)) : ℤ) : ZMod babyBear) := by
-    obtain ⟨hb, ht⟩ := lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
+  case «5» =>
+    exact lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
       (baseE := baseE) (baseF := baseF) (k := 4)
       (tsE := .var ⟨"writes_aux__base__prev_timestamp_1", some 48⟩)
       (loE := payloadOf opt 19 0) (hiE := payloadOf opt 20 0)
       (optPinRules_hold asg halg) optBaseLin (by decide)
       (acceptsAt hacc 19 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
       (acceptsAt hacc 20 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
-    rw [Recipe.place_eq] at ht
-    exact ⟨_, hb, ht⟩
-  obtain ⟨nr3, hnr3, htr3⟩ : ∃ n : ℕ, n < 2 ^ 29 ∧
-      asg ⟨"reads_aux__1__base__prev_timestamp_3", some 115⟩
-        = asg ⟨"from_state__timestamp_0", some 1⟩ + (((9 - (n : ℤ)) : ℤ) : ZMod babyBear) := by
-    obtain ⟨hb, ht⟩ := lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
+  case «10» =>
+    exact lookback_of_gadget (vs := layoutVars) (rules := optPinRules)
       (baseE := baseE) (baseF := baseF) (k := 9)
       (tsE := .var ⟨"reads_aux__1__base__prev_timestamp_3", some 115⟩)
       (loE := payloadOf opt 21 0) (hiE := payloadOf opt 22 0)
       (optPinRules_hold asg halg) optBaseLin (by decide)
       (acceptsAt hacc 21 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
       (acceptsAt hacc 22 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
-    rw [Recipe.place_eq] at ht
-    exact ⟨_, hb, ht⟩
+  all_goals simp [recipes] at hrc
+
+/-- The masked write at position `9`, the one send a decidable check cannot vouch for: OpenVM
+    computes `a AND 3` by looking it up rather than by constraint (`isByte_of_xorThree`). -/
+theorem optWriteOk {asg : ChipAssignment babyBear}
+    (hacc : opt.satisfiesStateless apcRules asg) (i : Fin opt.busInteractions.length)
+    (hwit : witnesses.getD i.val .notSend = .external) :
+    apcRules.payloadOk (opt.msgAt asg i) := by
+  haveI : Fact (1 < babyBear) := ⟨by decide⟩
   have hbit : accepts (p := babyBear) defaultBusMap
       { busId := 6, multiplicity := 1,
         payload := [asg ⟨"a__0_0", some 19⟩, 3,
@@ -150,109 +159,27 @@ theorem opt_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWindow) :
     isByte_of_xorThree hbit.1
       (by rw [hbit.2.2, show (3 : ZMod babyBear).val = 3 from by decide])
       (by linear_combination (2 * asg ⟨"a__0_2", some 91⟩) * babyBear_negOne)
-  have hub : ∀ i : Fin opt.busInteractions.length,
-      apcRules.isStateful (opt.busInteractions.get i).busId = true →
-      ((opt.busInteractions.get i).eval asg).multiplicity ≠ 0 →
-      (offsets n0 nw0 nr1 nw1 nr3).getD i.val 0 ≤ offsetUb.getD i.val 0 := by
-    intro i hst _
-    fin_cases i <;>
-      simp [offsets, offsetUb, opt, apcRules, openVmGuestRules, openVmIsStateful,
-        defaultBusMap, OpenVmBusType.isStateful] at hst ⊢
-  have hsendIdx : ∀ i : Fin opt.busInteractions.length,
-      apcRules.isStateful (opt.busInteractions.get i).busId = true →
-      ((opt.busInteractions.get i).eval asg).multiplicity = 1 →
-      i.val ∈ [1, 6, 8, 9, 11, 12] ∧
-      (offsets n0 nw0 nr1 nw1 nr3).getD i.val 0 = offsetUb.getD i.val 0 := by
-    intro i hst hm
-    fin_cases i <;>
-      simp_all [offsets, offsetUb, opt, apcRules, openVmGuestRules,
-        openVmIsStateful, defaultBusMap, OpenVmBusType.isStateful, BusInteraction.eval,
-        Expression.eval, babyBear_negOne_ne_one]
-  -- The bridge, by static analysis: `optBridgeCheck` is a `decide`.
-  obtain ⟨hrecv, hsend, hother⟩ := bridgeCheck_sound optBridgeCheck (optPinRules_hold asg halg)
-  refine ⟨_, _, _, 11, by norm_num, hw, hrecv, hsend, hother,
-    fun i => (offsets n0 nw0 nr1 nw1 nr3).getD i.val 0, ?_, ?_⟩
-  · -- The placement, offset by offset.
-    rintro i ⟨hst, hm⟩
-    fin_cases i
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits]; omega,
-        by simp [offsets]; omega,
-        by simpa [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt] using ht0⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [offsets],
-        by simp [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt]⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits]; omega,
-        by simp [offsets]; omega,
-        by simpa [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt] using htw0⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [offsets],
-        by simp [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt, openVmMemBusId,
-          openVmExecBusId]⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits]; omega,
-        by simp [offsets]; omega,
-        by simpa [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt] using htr1⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits]; omega,
-        by simp [offsets]; omega,
-        by simpa [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt] using htw1⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [offsets],
-        by simp [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt]⟩
-    · simp [opt, apcRules, openVmGuestRules, openVmIsStateful, defaultBusMap,
-        OpenVmBusType.isStateful] at hst
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [offsets],
-        by simp [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt]⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [offsets],
-        by simp [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt]⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits]; omega,
-        by simp [offsets]; omega,
-        by simpa [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt] using htr3⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [offsets],
-        by simp [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt]⟩
-    · exact ⟨by simp [offsets, openVmTimestampBound, openVmTimestampBits],
-        by simp [offsets],
-        by simp [offsets, baseE, opt, BusInteraction.eval, Expression.eval, apcRules,
-          openVmGuestRules, openVmTimestamp, Circuit.msgAt, openVmMemBusId,
-          openVmExecBusId]⟩
-    all_goals
-      simp [opt, apcRules, openVmGuestRules, openVmIsStateful, defaultBusMap,
-        OpenVmBusType.isStateful] at hst
-  · -- The byte invariant, by static analysis: only the masked write is left by hand. What used to
-    -- be `memOrdered` (`offsetUb_dominates`) is inlined here, converting the caller's
-    -- `place`-ordered hypothesis into the index order `byteCheck_sendsOk` expects.
-    intro i hsend hlow
-    have hordered : ∀ j : Fin opt.busInteractions.length, j < i →
-        opt.activeMem apcRules asg j →
-        apcRules.payloadOk (opt.msgAt asg j) := by
-      intro j hji hactj
-      obtain ⟨hmem, heq⟩ := hsendIdx i hsend.1.1 hsend.1.2
-      refine hlow j ?_ hactj
-      show (offsets n0 nw0 nr1 nw1 nr3).getD j.val 0
-        < (offsets n0 nw0 nr1 nw1 nr3).getD i.val 0
-      rw [heq]
-      exact lt_of_le_of_lt (hub j hactj.1.1 hactj.1.2)
-        (offsetUb_dominates i.val hmem j.val (Fin.lt_def.mp hji))
-    refine memSendsOk_of_sendsOk (byteCheck_sendsOk (optPinRules_hold asg halg) optByteCheck ?_)
-      i hsend hordered
-    intro i hi hsend hlow
-    fin_cases i
-    all_goals try exact absurd hi (by decide)
-    show openVmPayloadOk defaultBusMap ((1 : ℕ), [(1 : ZMod babyBear), 44,
-      asg ⟨"a__0_2", some 91⟩, 0, 0, 0, asg ⟨"from_state__timestamp_0", some 1⟩ + 9])
-    exact (openVmPayloadOk_mem_iff _ _ _ _ _ _).mpr ⟨ha02, isByte_zero, isByte_zero, isByte_zero⟩
+  fin_cases i
+  all_goals try exact absurd hwit (by decide)
+  show openVmPayloadOk defaultBusMap ((1 : ℕ), [(1 : ZMod babyBear), 44,
+    asg ⟨"a__0_2", some 91⟩, 0, 0, 0, asg ⟨"from_state__timestamp_0", some 1⟩ + 9])
+  exact (openVmPayloadOk_mem_iff _ _ _ _ _ _).mpr ⟨ha02, isByte_zero, isByte_zero, isByte_zero⟩
+
+/-- **A real optimized APC has a step layout.** One arc — `(2105000, t) → (2105016 - 192·cmp,
+    t + 11)` — and the twelve stateful interactions placed at `recipes`, read off the five
+    surviving lt gadgets. Four of its five memory sends echo a receive earlier in the same step;
+    the fifth is the masked value the bitwise table checks.
+
+    This is finding G's memory half, closed. The clause the old `Circuit.advancesClock` failed on
+    every APC — memory strictly inside `(base, base + d)` — is gone; what replaces it, an integer
+    offset in `[-2 ^ 29, 11]` with the sends ordered, this circuit satisfies. -/
+theorem opt_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWindow) :
+    opt.hasStepLayout apcRules maxWindow openVmTimestampBound :=
+  hasStepLayout_of_checks (by norm_num) hw (fun _ halg => optPinRules_hold _ halg) optBaseLin
+    (fun asg halg => bridgeCheck_sound optBridgeCheck (optPinRules_hold asg halg))
+    optPlaceCheck optOrderCheck optFitsCheck optByteCheck
+    (fun _ halg hacc => optLookbacks halg hacc)
+    (fun _ _ hacc i hwit _ _ => optWriteOk hacc i hwit)
 
 theorem opt_legalGuest {maxWindow maxInteractions : ℕ} (hw : 11 < maxWindow)
     (hi : 23 ≤ maxInteractions) :

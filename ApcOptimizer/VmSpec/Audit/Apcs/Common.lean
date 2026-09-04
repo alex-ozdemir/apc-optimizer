@@ -164,15 +164,32 @@ theorem openVmReadsTimestampAt : ReadsTimestampAt (p := babyBear) apcRules openV
         List.getD_eq_getElem?_getD]
     · rw [if_neg hexec] at hj; cases hj
 
-/-- **The lt gadget, as a `Recipe`.** OpenVM's `AssertLtSubAir` writes the distance `n` between a
-    memory receive's timestamp and the step's base as two limbs, `lo + 2 ^ 17 * hi`, range-checks
-    them to `17` and `12` bits, and range-checks `hi` as the payload
-    `15360 * (ts + lo - base - k)` — `15360` being `-1 / 2 ^ 17` in BabyBear, which is what the
-    optimizer leaves once the gadget's own constraint is substituted away.
+/-- **`lt_gadget_offset`'s conclusion, in `Recipe` form.** Whatever shape the gadget is in, once
+    its two limbs are range-checked and `hi` is pinned to `15360 * (ts + lo - base - k)`, the
+    reach is bounded and the timestamp sits where `Recipe.lookback` computes. -/
+theorem lookback_of_limbs {asg : ChipAssignment babyBear} {k : ℤ}
+    {baseE tsE loE hiE : Expression babyBear}
+    (hlo : accepts (p := babyBear) defaultBusMap
+      { busId := 3, multiplicity := 1, payload := [loE.eval asg, 17] })
+    (hhi : accepts (p := babyBear) defaultBusMap
+      { busId := 3, multiplicity := 1, payload := [hiE.eval asg, 12] })
+    (heq : hiE.eval asg = 15360 * tsE.eval asg + 15360 * loE.eval asg
+      - 15360 * baseE.eval asg - 15360 * ((k : ℤ) : ZMod babyBear)) :
+    (Recipe.lookback k 131072 loE hiE).back asg < openVmTimestampBound ∧
+      tsE.eval asg = baseE.eval asg
+        + (((Recipe.lookback k 131072 loE hiE).place asg : ℤ) : ZMod babyBear) := by
+  obtain ⟨n, hneq, hn, ht⟩ := lt_gadget_offset k (tsE.eval asg) (baseE.eval asg) hlo hhi heq
+  exact ⟨by simpa [Recipe.back, openVmTimestampBound, openVmTimestampBits, ← hneq] using hn,
+    by simpa [Recipe.place, ← hneq] using ht⟩
+
+/-- **The lt gadget as powdr's optimizer leaves it, as a `Recipe`.** `AssertLtSubAir` writes the
+    distance `n` between a memory receive's timestamp and the step's base as two limbs,
+    `lo + 2 ^ 17 * hi`, range-checks them to `17` and `12` bits, and range-checks `hi` as the
+    payload `15360 * (ts + lo - base - k)` — `15360` being `-1 / 2 ^ 17` in BabyBear, which is what
+    survives once the gadget's own constraint is substituted away.
 
     The arithmetic is checked (`gadgetIdentity`); the two lookups are supplied. What comes back is
-    exactly what `Recipe.lookback` needs: the reach is bounded, and the timestamp sits at the
-    offset the recipe computes. -/
+    exactly the pair `hasStepLayout_of_checks` asks of a `lookback` recipe. -/
 theorem lookback_of_gadget {vs : List Variable} {rules : List (PinRule babyBear)}
     {baseE : Expression babyBear} {baseF : LinForm babyBear} {k : ℤ}
     {tsE loE hiE : Expression babyBear} {asg : ChipAssignment babyBear}
@@ -184,14 +201,9 @@ theorem lookback_of_gadget {vs : List Variable} {rules : List (PinRule babyBear)
     (hhi : accepts (p := babyBear) defaultBusMap
       { busId := 3, multiplicity := 1, payload := [hiE.eval asg, 12] }) :
     (Recipe.lookback k 131072 loE hiE).back asg < openVmTimestampBound ∧
-      tsE.eval asg
-        = baseE.eval asg
-          + ((((Recipe.lookback k 131072 loE hiE).place asg : ℤ)) : ZMod babyBear) := by
-  obtain ⟨n, hneq, hn, ht⟩ := lt_gadget_offset k (tsE.eval asg) (baseE.eval asg) hlo hhi
-    (by rw [gadgetIdentity_sound hrules hbase hid]; ring)
-  refine ⟨?_, ?_⟩
-  · simpa [Recipe.back, openVmTimestampBound, openVmTimestampBits, ← hneq] using hn
-  · simpa [Recipe.place, ← hneq] using ht
+      tsE.eval asg = baseE.eval asg
+        + (((Recipe.lookback k 131072 loE hiE).place asg : ℤ) : ZMod babyBear) :=
+  lookback_of_limbs hlo hhi (by rw [gadgetIdentity_sound hrules hbase hid]; ring)
 
 /-- One interaction of a circuit, unpacked from `Circuit.satisfiesStateless`. The message is given
     explicitly and matched against the list entry by `rfl`, which leaves the side conditions as
@@ -203,6 +215,83 @@ theorem acceptsAt {c : Circuit babyBear} {asg : ChipAssignment babyBear}
     (hst : apcRules.isStateful m.busId = false) (hmult : m.multiplicity ≠ 0) :
     accepts defaultBusMap m := by
   subst hm; exact hacc _ (List.getElem_mem hk) hst hmult
+
+--------- The whole step layout, from four checkers ---------
+
+/-- **`Circuit.hasStepLayout` from four `Bool`s and the gadget facts.** The bridge, the placement,
+    the memory ordering and the byte invariant are each decided against the circuit powdr emitted;
+    what is left for the caller is exactly what a decidable check cannot see:
+
+    * `hlook` — where each memory *receive* reaches back to. Nothing in the algebraic constraints
+      says; it comes off the lt gadget, and `lookback_of_gadget` returns this pair verbatim.
+    * `hext` — why a fresh memory *send* is byte-valued, for the sends `ByteCheck.lean` marks
+      `.external`. That is a lookup table's promise, not a shape.
+
+    Everything else — which interaction sits where, which are sends, which order they fall in — is
+    read off the recipes and the interaction list. `vs` and `vsB` are the variable lists the
+    placement and the byte check normalize against; a fused APC wants different ones, since
+    `placeCheckAll` reads every stateful payload and `byteCheckAll` only the memory sends. -/
+theorem hasStepLayout_of_checks {c : Circuit babyBear}
+    {vs vsB : List Variable} {rules : List (PinRule babyBear)}
+    {baseE pcFromE pcToE : Expression babyBear} {baseF : LinForm babyBear}
+    {R : List (Recipe babyBear)} {W : List ByteWitness}
+    {maxWindow d : ℕ} (hd : 0 < d) (hw : d < maxWindow)
+    (hrules : ∀ asg : ChipAssignment babyBear, c.satisfiesAlgebraic asg →
+      ∀ q ∈ rules, q.1.eval asg = q.2)
+    (hbase : Expression.toLin vs rules baseE = some baseF)
+    (hbridge : ∀ asg : ChipAssignment babyBear, c.satisfiesAlgebraic asg →
+      c.allEffects asg (0, [pcFromE.eval asg, baseE.eval asg]) = -1 ∧
+      c.allEffects asg (0, [pcToE.eval asg, baseE.eval asg + ((d : ℕ) : ZMod babyBear)]) = 1 ∧
+      ∀ m : BusMessage babyBear, m.1 = 0 →
+        m ≠ (0, [pcFromE.eval asg, baseE.eval asg]) →
+        m ≠ (0, [pcToE.eval asg, baseE.eval asg + ((d : ℕ) : ZMod babyBear)]) →
+        c.allEffects asg m = 0)
+    (hplace :
+      placeCheckAll vs rules apcRules.isStateful openVmTsPos baseF c.busInteractions R = true)
+    (horder :
+      memOrderCheck rules openVmMemBusId openVmTimestampBound c.busInteractions R = true)
+    (hfits : (List.range c.busInteractions.length).all
+      (fun i => (R.getD i (.fixed 0)).fits openVmTimestampBound d) = true)
+    (hbyte : byteCheckAll vsB rules c.busInteractions W = true)
+    (hlook : ∀ asg : ChipAssignment babyBear, c.satisfiesAlgebraic asg →
+      c.satisfiesStateless apcRules asg →
+      ∀ i : Fin c.busInteractions.length, ∀ (k : ℤ) (radix : ℕ) (loE hiE : Expression babyBear),
+        R.getD i.val (.fixed 0) = .lookback k radix loE hiE →
+        (R.getD i.val (.fixed 0)).back asg < openVmTimestampBound ∧
+          apcRules.getTimestamp (c.msgAt asg i)
+            = baseE.eval asg + (((R.getD i.val (.fixed 0)).place asg : ℤ) : ZMod babyBear))
+    (hext : ∀ asg : ChipAssignment babyBear, c.satisfiesAlgebraic asg →
+      c.satisfiesStateless apcRules asg →
+      ∀ i : Fin c.busInteractions.length, W.getD i.val .notSend = .external →
+        c.statefulSend apcRules asg i →
+        (∀ j : Fin c.busInteractions.length, j < i → c.activeStateful apcRules asg j →
+          apcRules.payloadOk (c.msgAt asg j)) →
+        apcRules.payloadOk (c.msgAt asg i)) :
+    c.hasStepLayout apcRules maxWindow openVmTimestampBound := by
+  haveI : Fact (1 < babyBear) := ⟨by decide⟩
+  intro asg halg hacc
+  have hr := hrules asg halg
+  have hback : ∀ i : Fin c.busInteractions.length,
+      (R.getD i.val (.fixed 0)).back asg < openVmTimestampBound := by
+    intro i
+    cases hrc : R.getD i.val (.fixed 0) with
+    | fixed k => simp [Recipe.back, openVmTimestampBound, openVmTimestampBits]
+    | lookback k radix loE hiE =>
+      rw [← hrc]; exact (hlook asg halg hacc i k radix loE hiE hrc).1
+  have hfit : ∀ i : Fin c.busInteractions.length,
+      (R.getD i.val (.fixed 0)).fits openVmTimestampBound d = true :=
+    fun i => List.all_eq_true.mp hfits i.val (List.mem_range.mpr i.isLt)
+  obtain ⟨hrecv, hsend, hother⟩ := hbridge asg halg
+  refine ⟨_, _, _, d, hd, hw, hrecv, hsend, hother,
+    fun i => (R.getD i.val (.fixed 0)).place asg, ?_, ?_⟩
+  · exact fun i hi => placeCheck_placed hr hbase openVmReadsTimestampAt rfl hplace i hi
+      (hfit i) (hback i) (fun k radix loE hiE hrc => (hlook asg halg hacc i k radix loE hiE hrc).2)
+  · intro i hsendI hlow
+    refine memSendsOk_of_sendsOk (byteCheck_sendsOk hr hbyte
+      (fun i hwit hs hl => hext asg halg hacc i hwit hs hl)) i hsendI ?_
+    intro j hji hactj
+    exact hlow j (memOrderCheck_sound horder hr (Fin.lt_def.mp hji) hactj.2 hsendI.2
+      hsendI.1.2 (hback j) (hback i)) hactj
 
 --------- The raw gadget, before powdr's substitution pass ---------
 
