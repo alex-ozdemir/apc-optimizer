@@ -110,6 +110,29 @@ top of the audited, non-VM optimizer (`PassCorrect`'s fourth conjunct,
 `OptimizerPasses/Basic.lean`) — threaded through a `Connection.lean`-shaped induction that has not
 been written.
 
+A cheaper route than a second induction is worth ruling in first. `VmCompleteReplacement host G G'`
+*is* `VmSoundReplacement host G' G`, so `vmSoundReplacement_of_forall₂` can be applied with the two
+lists swapped, provided each pair yields the reversed `Circuit.isSoundReplacementOf`. Unfolding both
+definitions, `Circuit.isCompleteReplacementOf` delivers exactly that shape, with the existential
+witnessed by `Derivations.witgen`, modulo two things: its `guaranteesInvariants` conjunct points the
+wrong way (but `vmSoundReplacement_cons` only ever uses `hSound.1`, so weakening those three
+theorems to the first conjunct unblocks it), and its `Circuit.admissible` gate.
+
+That gate is the real cost, and it is **not** a corner case. Measured over the shipped corpus at the
+`opt` stage, normalizing addresses to linear form so that pointers differing by a constant offset
+count as distinct: **79 of 100 `openvm-eth` APCs**, 32 of 100 `wasm-eth`, and both the keccak and
+sha256 blocks carry at least one send→receive pair on the memory bus whose two addresses cannot be
+told apart statically — two accesses at independently computed pointers, where `admissible` demands
+the second's previous record equal the first's new one. The canonical shape is a load through one
+pointer register followed by a store through another. Deriving that from `VmSat`'s balance is the
+global→local argument, and it is what a completeness proof has to pay for.
+
+Note that the four APCs audited before `TwoLoads` are all in the *vacuous* 21%: their memory
+addresses are literal register numbers (or, in `LoadBranch`, one lone main-memory access), so
+`admissibleMemoryBus` asks nothing of them. Prototyping per-instance admissibility against those
+alone would make it look like a syntactic checker suffices, and that would not survive contact with
+the rest of the corpus.
+
 That induction would also need a VM-level notion of "real trace" that does not exist yet.
 `Circuit.isCompleteReplacementOf`'s guarantee is gated on `Circuit.admissible`, which checks a
 memory-ordering discipline (`admissibleMemoryBus`, `MemoryBus.lean`) over *one circuit's own local*
@@ -154,6 +177,16 @@ claimed. Each reaches `opt_legalGuest`, and each brings a shape the first three 
 | --- | --- | --- |
 | `Apcs/AndBranch/` | `apc_056_pc0x200bd4`: `andi` then branch-if-nonzero, two fused instructions | a masked write, byte-valued because a *lookup* says so (`isByte_of_andEq`), not because a constraint does |
 | `Apcs/LoadBranch/` | `apc_072_pc0x391014`: `loadw` then `beq`, two fused instructions | main memory — address space `2`, at a pointer the circuit computes, echoed on into a register |
+| `Apcs/TwoLoads/` | `apc_002_pc0x4ecc48`: two `loadb`s then a branch, three fused instructions | two main-memory accesses that *may alias* — and the first circuit the decidable layer cannot reach |
+
+`TwoLoads` is the odd one out: it reaches both multiplicity clauses, the bridge, the memory
+ordering and the window, and then stops. A **byte** load's pointer is quadratic in its own
+`flags__*` selector, `Audit/LinForm.lean` normalizes to a *linear* form, and so `payloadLin`
+returns `none` on the two main-memory accesses (`optMemPayload_notLinear`); `placeCheckAll` and
+`byteCheckAll` reject at exactly those interactions and their echoes. Both failures are `decide`d
+theorems, like the gated stage's. Reaching this shape means teaching `LinForm` to carry a
+non-linear subterm as an opaque atom — a change to a soundness-critical checker. A *word* load's
+pointer (`LoadBranch`) is linear and gives the checkers no trouble.
 
 `LoadBranch` is why `ByteCheck.lean`'s `memShape` admits both byte-checked address spaces rather
 than registers alone: `MemoryPayload.isByteChecked` covers `1` and `2`, and a load's echo crosses

@@ -13,6 +13,7 @@ import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.Gated
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.GatedPinned
 import ApcOptimizer.VmSpec.Audit.Apcs.AndBranch.Opt
 import ApcOptimizer.VmSpec.Audit.Apcs.LoadBranch.Opt
+import ApcOptimizer.VmSpec.Audit.Apcs.TwoLoads.Opt
 
 /-! **`Circuit.legalGuest` measured against real APCs.**
 
@@ -49,6 +50,7 @@ import ApcOptimizer.VmSpec.Audit.Apcs.LoadBranch.Opt
     | `SingleBeq` | `if [x8] == [x5] jump +2` | a *branching* step: `pc` out is `4 - 2·cmp`, and nothing is written |
     | `AndBranch` | `andi` then branch-if-nonzero, two fused instructions | a masked write, whose byte-ness the bitwise table gives *by lookup* (`isByte_of_andEq`) rather than by constraint |
     | `LoadBranch` | `loadw` then `beq`, two fused instructions | *main memory*: an access in address space `2`, at a pointer the circuit computes, echoed on into a register |
+    | `TwoLoads` | two `loadb`s then a branch, three fused instructions | the first circuit here the decidable layer *cannot* reach: a byte load's pointer is quadratic in its own selector flags, and `LinForm` is linear-only |
 
     The last two come straight out of the shipped benchmark corpus
     (`Benchmarks/OpenVM/openvm-eth/apc_056_pc0x200bd4` and `apc_072_pc0x391014`), which ships two
@@ -65,7 +67,24 @@ import ApcOptimizer.VmSpec.Audit.Apcs.LoadBranch.Opt
     | `statefulPolarity` | **true** | **true** | true, out of checker reach |
     | `hasStepLayout` | fused: **false**; single: **true** | **true** | **false**, padding row |
 
-    `AndBranch` and `LoadBranch` fill the `opt` column only; the other three fill all of it.
+    `AndBranch`, `LoadBranch` and `TwoLoads` fill the `opt` column only; the other three fill all
+    of it. `TwoLoads` fills it only in part, and deliberately: it reaches `statelessSendOnly`,
+    `statefulPolarity`, the bridge, the memory ordering and the window, then stops at
+    `hasStepLayout` because `payloadLin` cannot normalize a *quadratic* memory address
+    (`optMemPayload_notLinear`). Both failures are recorded as `decide`d theorems
+    (`optPlaceCheck_fails`, `optByteCheck_fails`) naming exactly the four interactions responsible,
+    in the same spirit as `gated_not_hasStepLayout`.
+
+    **Why `TwoLoads` is audited at all.** Its two main-memory accesses sit at independently
+    computed pointers, so they *may alias* — and when they do, `Circuit.admissible`
+    (`MemoryBus.lean`) demands the second access's previous record equal the first's new one.
+    Every other APC here is free of that obligation: their memory addresses are literal register
+    numbers, or (in `LoadBranch`) a single main-memory access with nothing to alias with, so
+    `admissibleMemoryBus` is vacuous on them. That makes the first four *unrepresentative* of the
+    corpus for anything that rests on `admissible` — VM-level completeness above all — where
+    79 of the 100 `openvm-eth` APCs do carry a genuine aliasing pair. `TwoLoads` is the smallest
+    circuit in the shipped corpus with the shape; that the checkers cannot yet reach it is the
+    finding, not a reason to leave the shape unaudited.
 
     The two falsities split cleanly. The gated stage's padding row reproduces on a
     single-instruction APC exactly as on a fused block, so *that* gap is powdr's gating pass, not
