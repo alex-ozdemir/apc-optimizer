@@ -22,18 +22,12 @@ theorem gated_checkMultiplicities_fails :
     comparison ones are `cmp * (…)`, and the one that pinned `cmp` at the preceding stage now reads
     `… + cmp - is_valid` rather than `… + cmp - 1`. Nothing pins `is_valid` to `1`. -/
 theorem gated_satisfiesAlgebraic_zero :
-    gated.satisfiesAlgebraic (fun _ => 0) := by
-  intro c hc
-  simp only [gated, List.mem_cons, List.not_mem_nil, or_false] at hc
-  rcases hc with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> simp [Expression.eval]
+    gated.satisfiesAlgebraic (fun _ => 0) :=
+  satisfiesAlgebraic_of_forall (by decide)
 
 /-- On that row the gated APC is silent: every multiplicity is `±is_valid`, which is `0`. -/
 theorem gated_mults_zero_on_padding :
-    ∀ bi ∈ gated.busInteractions, (bi.eval (fun _ => 0)).multiplicity = 0 := by
-  intro bi hbi
-  simp only [gated, List.mem_cons, List.not_mem_nil, or_false] at hbi
-  rcases hbi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-    simp [BusInteraction.eval, Expression.eval]
+    ∀ bi ∈ gated.busInteractions, (bi.eval (fun _ => 0)).multiplicity = 0 := by decide
 
 /-- **The padding row has no step layout**, exactly as for the other two APCs: the all-zero
     assignment is algebraically satisfying and nets `0` on every message of every bus, where

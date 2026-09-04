@@ -104,6 +104,8 @@ ApcOptimizer.OpenVM.Keccak2105000.offsetUb_dominates
 ApcOptimizer.OpenVM.Keccak2105000.opt_hasStepLayout
 ApcOptimizer.OpenVM.Keccak2105000.opt_legalGuest
 ApcOptimizer.OpenVM.allEffects_eq_zero_of_mults_zero
+ApcOptimizer.OpenVM.satisfiesAlgebraic_of_forall
+ApcOptimizer.OpenVM.not_satisfiesAlgebraic_of_not_forall
 ApcOptimizer.OpenVM.Keccak2105000.opt_checkMultiplicities
 ApcOptimizer.OpenVM.Keccak2105000.opt_legalMultiplicities
 ApcOptimizer.OpenVM.Keccak2105000.opt_no_padding_row

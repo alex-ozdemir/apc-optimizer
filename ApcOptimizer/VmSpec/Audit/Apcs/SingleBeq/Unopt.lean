@@ -30,16 +30,8 @@ theorem unopt_legalMultiplicities :
 /-- **The unoptimized APC has no padding row either**: it pins the opcode-flag sum to `1`
     (`1 - (beq + bne) = 0`), which the all-zero assignment violates. -/
 theorem unopt_zero_not_satisfiesAlgebraic :
-    ¬ unopt.satisfiesAlgebraic (fun _ => 0) := by
-  intro h
-  have := h
-    (.add (.mul (.const 2013265920)
-        (.add (.add (.const 0) (.var ⟨"opcode_beq_flag_0", some 20⟩))
-          (.var ⟨"opcode_bne_flag_0", some 21⟩)))
-      (.const 1))
-    (by simp [unopt])
-  simp only [Expression.eval] at this
-  exact absurd this (by decide)
+    ¬ unopt.satisfiesAlgebraic (fun _ => 0) :=
+  not_satisfiesAlgebraic_of_not_forall (by decide)
 
 --------- The step layout ---------
 

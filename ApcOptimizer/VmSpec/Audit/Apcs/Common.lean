@@ -38,6 +38,16 @@ abbrev apcRules : GuestBusRules babyBear :=
 /-- powdr emits `-1` as the literal `p - 1`; the two are the same field element. -/
 theorem babyBear_negOne : (2013265920 : ZMod babyBear) = -1 := by decide
 
+/-- **`Circuit.satisfiesAlgebraic`, re-typed so `decide` applies.** It is a `def` returning `Prop`,
+    so instance resolution will not look under it for the decidable `∀ x ∈ L` it unfolds to. These
+    two change nothing but the head symbol, and turn a padding-row argument -- does the all-zero
+    assignment satisfy this circuit? -- into a `decide` on a concrete constraint list. -/
+theorem satisfiesAlgebraic_of_forall {p : ℕ} {c : Circuit p} {asg : ChipAssignment p}
+    (h : ∀ e ∈ c.algebraicConstraints, e.eval asg = 0) : c.satisfiesAlgebraic asg := h
+
+theorem not_satisfiesAlgebraic_of_not_forall {p : ℕ} {c : Circuit p} {asg : ChipAssignment p}
+    (h : ¬ ∀ e ∈ c.algebraicConstraints, e.eval asg = 0) : ¬ c.satisfiesAlgebraic asg := h
+
 /-- A circuit whose every multiplicity vanishes puts nothing on any bus. -/
 theorem allEffects_eq_zero_of_mults_zero {p : ℕ} {c : Circuit p} {asg : ChipAssignment p}
     (h : ∀ bi ∈ c.busInteractions, (bi.eval asg).multiplicity = 0) (m : BusMessage p) :

@@ -25,20 +25,12 @@ theorem gated_checkMultiplicities_fails :
     `cmp * (cmp - 1)`, `(1 - cmp) * a`, `free * a - cmp`, and `is_valid * (is_valid - 1)`, each of
     which vanishes at `0`. Nothing pins `is_valid` to `1`. -/
 theorem gated_satisfiesAlgebraic_zero :
-    gated.satisfiesAlgebraic (fun _ => 0) := by
-  intro c hc
-  simp only [gated, List.mem_cons, List.not_mem_nil, or_false] at hc
-  rcases hc with rfl | rfl | rfl | rfl <;> simp [Expression.eval]
+    gated.satisfiesAlgebraic (fun _ => 0) :=
+  satisfiesAlgebraic_of_forall (by decide)
 
 /-- On that row the gated APC is silent: every multiplicity is `±is_valid`, which is `0`. -/
 theorem gated_mults_zero_on_padding :
-    ∀ bi ∈ gated.busInteractions,
-      (bi.eval (fun _ => 0)).multiplicity = 0 := by
-  intro bi hbi
-  simp only [gated, List.mem_cons, List.not_mem_nil, or_false] at hbi
-  rcases hbi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
-    simp [BusInteraction.eval, Expression.eval]
+    ∀ bi ∈ gated.busInteractions, (bi.eval (fun _ => 0)).multiplicity = 0 := by decide
 
 /-- **Finding G1, still open: the padding row has no step layout.** powdr's optimizer replaces each
     fused instruction's pinned opcode-flag sum with one fresh `is_valid` column carrying only
