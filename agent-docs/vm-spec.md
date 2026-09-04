@@ -177,16 +177,22 @@ claimed. Each reaches `opt_legalGuest`, and each brings a shape the first three 
 | --- | --- | --- |
 | `Apcs/AndBranch/` | `apc_056_pc0x200bd4`: `andi` then branch-if-nonzero, two fused instructions | a masked write, byte-valued because a *lookup* says so (`isByte_of_andEq`), not because a constraint does |
 | `Apcs/LoadBranch/` | `apc_072_pc0x391014`: `loadw` then `beq`, two fused instructions | main memory — address space `2`, at a pointer the circuit computes, echoed on into a register |
-| `Apcs/TwoLoads/` | `apc_002_pc0x4ecc48`: two `loadb`s then a branch, three fused instructions | two main-memory accesses that *may alias* — and the first circuit the decidable layer cannot reach |
+| `Apcs/TwoLoads/` | `apc_002_pc0x4ecc48`: two `loadb`s then a branch, three fused instructions | two main-memory accesses that *may alias*, and a quadratic memory address |
 
-`TwoLoads` is the odd one out: it reaches both multiplicity clauses, the bridge, the memory
-ordering and the window, and then stops. A **byte** load's pointer is quadratic in its own
-`flags__*` selector, `Audit/LinForm.lean` normalizes to a *linear* form, and so `payloadLin`
-returns `none` on the two main-memory accesses (`optMemPayload_notLinear`); `placeCheckAll` and
-`byteCheckAll` reject at exactly those interactions and their echoes. Both failures are `decide`d
-theorems, like the gated stage's. Reaching this shape means teaching `LinForm` to carry a
-non-linear subterm as an opaque atom — a change to a soundness-critical checker. A *word* load's
-pointer (`LoadBranch`) is linear and gives the checkers no trouble.
+`TwoLoads` is what forced the checkers to stop over-approximating. A **byte** load's pointer is
+quadratic in its own `flags__*` selector, and `placeCheckOne` and the `.echo`/`.limbs` witnesses
+used to normalize a *whole* payload to a `LinForm` — so they rejected the APC at a field neither
+clause reads. `placeCheckOne` reads only the timestamp; a byte witness reads only the address space
+and the four data limbs. Both now normalize exactly those (`memShapeLin`), leaving the pointer a
+raw evaluated field element. The change is strictly more permissive — every other APC's `decide`
+still passes unchanged — and it shortened both soundness proofs, since neither ever used the rest
+of the record.
+
+The one thing genuinely not a shape is what the load *writes*: a flag-selected byte, not an echo.
+`isByte_of_loadSelect` closes it — the four selector flags are trits, the block's own shape
+constraint cuts `81` combinations to exactly `4`, and each makes the selection one-hot, so the
+written limb is one of the four the load brought back and `sendsOk`'s own hypothesis vouches for
+those.
 
 `LoadBranch` is why `ByteCheck.lean`'s `memShape` admits both byte-checked address spaces rather
 than registers alone: `MemoryPayload.isByteChecked` covers `1` and `2`, and a load's echo crosses

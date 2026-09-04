@@ -50,7 +50,7 @@ import ApcOptimizer.VmSpec.Audit.Apcs.TwoLoads.Opt
     | `SingleBeq` | `if [x8] == [x5] jump +2` | a *branching* step: `pc` out is `4 - 2·cmp`, and nothing is written |
     | `AndBranch` | `andi` then branch-if-nonzero, two fused instructions | a masked write, whose byte-ness the bitwise table gives *by lookup* (`isByte_of_andEq`) rather than by constraint |
     | `LoadBranch` | `loadw` then `beq`, two fused instructions | *main memory*: an access in address space `2`, at a pointer the circuit computes, echoed on into a register |
-    | `TwoLoads` | two `loadb`s then a branch, three fused instructions | the first circuit here the decidable layer *cannot* reach: a byte load's pointer is quadratic in its own selector flags, and `LinForm` is linear-only |
+    | `TwoLoads` | two `loadb`s then a branch, three fused instructions | two main-memory accesses that *may alias*, and a **quadratic** memory address — a byte load's pointer is a quadratic function of its own selector flags |
 
     The last two come straight out of the shipped benchmark corpus
     (`Benchmarks/OpenVM/openvm-eth/apc_056_pc0x200bd4` and `apc_072_pc0x391014`), which ships two
@@ -68,14 +68,17 @@ import ApcOptimizer.VmSpec.Audit.Apcs.TwoLoads.Opt
     | `hasStepLayout` | fused: **false**; single: **true** | **true** | **false**, padding row |
 
     `AndBranch`, `LoadBranch` and `TwoLoads` fill the `opt` column only; the other three fill all
-    of it. `TwoLoads` fills it only in part, and deliberately: it reaches `statelessSendOnly`,
-    `statefulPolarity`, the bridge, the memory ordering and the window, then stops at
-    `hasStepLayout` because `payloadLin` cannot normalize a *quadratic* memory address
-    (`optMemPayload_notLinear`). Both failures are recorded as `decide`d theorems
-    (`optPlaceCheck_fails`, `optByteCheck_fails`) naming exactly the four interactions responsible,
-    in the same spirit as `gated_not_hasStepLayout`.
+    of it.
 
-    **Why `TwoLoads` is audited at all.** Its two main-memory accesses sit at independently
+    **What `TwoLoads` cost the checkers.** A byte load's pointer is quadratic in its own `flags__*`
+    selector, and both the placement and byte checks used to normalize a *whole* payload to a
+    `LinForm` — so they rejected this APC outright, at the address they never read. Neither clause
+    needs it: `placeCheckOne` reads only the timestamp field, and a `.echo`/`.limbs` witness only
+    the address space and the four data limbs. Both now normalize exactly those
+    (`memShapeLin`, `Audit/ByteCheck.lean`), which is strictly more permissive and makes their
+    soundness proofs shorter. The pointer stays a raw evaluated field element.
+
+    **Why `TwoLoads` is audited.** Its two main-memory accesses sit at independently
     computed pointers, so they *may alias* — and when they do, `Circuit.admissible`
     (`MemoryBus.lean`) demands the second access's previous record equal the first's new one.
     Every other APC here is free of that obligation: their memory addresses are literal register

@@ -105,10 +105,13 @@ def placeCheckOne (vs : List Variable) (rules : List (PinRule p)) (isStateful : 
     match tsPos bi.busId with
     | none => false
     | some j =>
-      match payloadLin vs rules bi.payload with
+      -- Only the timestamp field is normalized. Normalizing the whole payload would reject a
+      -- record this clause never reads into — a load's *address* can be non-linear (a byte load's
+      -- pointer is quadratic in its selector flags) while its timestamp is not.
+      match bi.payload[j]? with
       | none => false
-      | some pl =>
-        match pl[j]? with
+      | some e =>
+        match Expression.toLin vs rules e with
         | none => false
         | some f =>
           match rc with
@@ -177,21 +180,23 @@ theorem placeCheckOne_sound {vs : List Variable} {rules : List (PinRule p)}
     cases hj : tsPos bi.busId with
     | none => rw [hj] at h; cases h
     | some j =>
-      cases hpl : payloadLin vs rules bi.payload with
-      | none => rw [hj, hpl] at h; cases h
-      | some pl =>
-        rw [hj, hpl] at h
+      rw [hj] at h
+      dsimp only at h
+      cases he : bi.payload[j]? with
+      | none => rw [he] at h; cases h
+      | some e =>
+        rw [he] at h
         dsimp only at h
-        cases hf : pl[j]? with
+        cases hf : Expression.toLin vs rules e with
         | none => rw [hf] at h; cases h
         | some f =>
           rw [hf] at h
           have hbus : (bi.eval asg).busId = bi.busId := rfl
           rw [hts _ j (by rw [hbus]; exact hj)]
-          have hp : (bi.eval asg).payload = pl.map (fun g => g.eval vs asg) :=
-            payloadLin_eval hrules hpl
           have : ((bi.eval asg).payload).getD j 0 = f.eval vs asg := by
-            rw [hp, List.getD_eq_getElem?_getD, List.getElem?_map, hf]; rfl
+            show ((bi.payload.map (fun g => g.eval asg)).getD j 0) = f.eval vs asg
+            rw [List.getD_eq_getElem?_getD, List.getElem?_map, he]
+            exact Expression.toLin_eval hrules hf
           rw [this, eval_of_linShiftedBy h, Expression.toLin_eval hrules hbase]
           simp [Recipe.place]
 

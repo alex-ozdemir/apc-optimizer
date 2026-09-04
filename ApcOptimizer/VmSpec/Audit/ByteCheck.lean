@@ -30,16 +30,20 @@ variable {p : ℕ}
 def isByteCheckedConst (f : LinForm p) : Bool :=
   f.coefs.all (· == 0) && (f.const.val == 1 || f.const.val == 2)
 
-/-- A normalized payload in OpenVM's memory shape `(addr_space, ptr, d₀…d₃, t)`, at a literal
-    byte-checked address space. -/
-def memShape : List (LinForm p) → Bool
-  | [f0, _, _, _, _, _, _] => isByteCheckedConst f0
-  | _ => false
+/-- A payload in OpenVM's memory shape `(addr_space, ptr, d₀…d₃, t)`, normalized *only where this
+    file reads it* — the address space and the four data limbs — and returning the two.
 
-/-- Its four data limbs. -/
-def dataLimbs : List (LinForm p) → List (LinForm p)
-  | [_, _, f2, f3, f4, f5, _] => [f2, f3, f4, f5]
-  | _ => []
+    The pointer and the timestamp are deliberately left as raw expressions. Normalizing a field no
+    clause here inspects would reject records for no reason: a byte load's pointer is quadratic in
+    its own selector flags (`Apcs/TwoLoads/`), so a whole-payload normalization fails on it while
+    every field this check actually uses is linear. -/
+def memShapeLin (vs : List Variable) (rules : List (PinRule p)) :
+    List (Expression p) → Option (LinForm p × List (LinForm p))
+  | [e0, _, e2, e3, e4, e5, _] =>
+    match payloadLin vs rules [e0, e2, e3, e4, e5] with
+    | some [f0, f2, f3, f4, f5] => some (f0, [f2, f3, f4, f5])
+    | _ => none
+  | _ => none
 
 /-- Whether a form is a literal byte. -/
 def isByteConst (f : LinForm p) : Bool :=
@@ -53,21 +57,32 @@ theorem isByte_of_isByteConst {vs : List Variable} {asg : Variable → ZMod p} {
 
 /-- What a payload in memory shape evaluates to, and that its address space is one
     `openVmPayloadOk` asks about. -/
-theorem memShape_eval {vs : List Variable} {rules : List (PinRule p)} {asg : ChipAssignment p}
-    (hrules : ∀ q ∈ rules, q.1.eval asg = q.2) {es : List (Expression p)} {pl : List (LinForm p)}
-    (hpl : payloadLin vs rules es = some pl) (hshape : memShape pl = true) :
-    ∃ (asp ptr ts : ZMod p) (d0 d1 d2 d3 : LinForm p),
-      dataLimbs pl = [d0, d1, d2, d3] ∧ (asp.val = 1 ∨ asp.val = 2) ∧
+theorem memShapeLin_eval {vs : List Variable} {rules : List (PinRule p)} {asg : ChipAssignment p}
+    (hrules : ∀ q ∈ rules, q.1.eval asg = q.2) {es : List (Expression p)} {f0 : LinForm p}
+    {ds : List (LinForm p)}
+    (hpl : memShapeLin vs rules es = some (f0, ds)) (hshape : isByteCheckedConst f0 = true) :
+    ∃ (ptr ts : ZMod p) (d0 d1 d2 d3 : LinForm p),
+      ds = [d0, d1, d2, d3] ∧ (f0.const.val = 1 ∨ f0.const.val = 2) ∧
       es.map (fun e => e.eval asg)
-        = [asp, ptr, d0.eval vs asg, d1.eval vs asg, d2.eval vs asg, d3.eval vs asg, ts] := by
-  match pl, hshape with
-  | [f0, f1, f2, f3, f4, f5, f6], hshape =>
-    simp only [memShape, isByteCheckedConst, Bool.and_eq_true, Bool.or_eq_true,
-      beq_iff_eq] at hshape
-    refine ⟨f0.const, f1.eval vs asg, f6.eval vs asg, f2, f3, f4, f5, rfl, hshape.2, ?_⟩
-    rw [payloadLin_eval hrules hpl]
-    simp only [List.map_cons, List.map_nil, List.cons.injEq, and_true]
-    exact LinForm.eval_of_coefs_zero vs f0 asg hshape.1
+        = [f0.const, ptr, d0.eval vs asg, d1.eval vs asg, d2.eval vs asg, d3.eval vs asg, ts] := by
+  simp only [isByteCheckedConst, Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hshape
+  match es, hpl with
+  | [e0, e1, e2, e3, e4, e5, e6], hpl =>
+    simp only [memShapeLin] at hpl
+    cases hp : payloadLin vs rules [e0, e2, e3, e4, e5] with
+    | none => rw [hp] at hpl; cases hpl
+    | some l =>
+      rw [hp] at hpl
+      match l, hpl with
+      | [g0, g2, g3, g4, g5], hpl =>
+        simp only [Option.some.injEq, Prod.mk.injEq] at hpl
+        obtain ⟨rfl, rfl⟩ := hpl
+        have hev := payloadLin_eval hrules hp
+        simp only [List.map_cons, List.map_nil, List.cons.injEq, and_true] at hev
+        obtain ⟨h0, h2, h3, h4, h5⟩ := hev
+        refine ⟨e1.eval asg, e6.eval asg, g2, g3, g4, g5, rfl, hshape.2, ?_⟩
+        simp only [List.map_cons, List.map_nil]
+        rw [h0, h2, h3, h4, h5, LinForm.eval_of_coefs_zero vs g0 asg hshape.1]
 
 --------- Witnesses ---------
 
@@ -96,8 +111,8 @@ def byteCheckOne (vs : List Variable) (rules : List (PinRule p))
   | .notMemory => !(bi.busId == openVmMemBusId)
   | .limbs =>
     (bi.busId == openVmMemBusId) &&
-      (match payloadLin vs rules bi.payload with
-       | some pl => memShape pl && (dataLimbs pl).all isByteConst
+      (match memShapeLin vs rules bi.payload with
+       | some (f0, ds) => isByteCheckedConst f0 && ds.all isByteConst
        | none => false)
   | .echo j =>
     (bi.busId == openVmMemBusId) && decide (j < i) &&
@@ -105,9 +120,9 @@ def byteCheckOne (vs : List Variable) (rules : List (PinRule p))
        | none => false
        | some bj =>
          (bj.busId == openVmMemBusId) && multNotZero rules bj &&
-           (match payloadLin vs rules bi.payload, payloadLin vs rules bj.payload with
-            | some pli, some plj =>
-              memShape pli && memShape plj && (dataLimbs pli == dataLimbs plj)
+           (match memShapeLin vs rules bi.payload, memShapeLin vs rules bj.payload with
+            | some (f0i, dsi), some (f0j, dsj) =>
+              isByteCheckedConst f0i && isByteCheckedConst f0j && (dsi == dsj)
             | _, _ => false))
   | .external => true
 
@@ -194,16 +209,17 @@ theorem byteCheckOne_sound [Fact (1 < p)] {vs : List Variable} {rules : List (Pi
     rw [hw] at h
     simp only [byteCheckOne, Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨hmem, h⟩ := h
-    cases hpl : payloadLin vs rules (c.busInteractions.get i).payload with
+    cases hpl : memShapeLin vs rules (c.busInteractions.get i).payload with
     | none => rw [hpl] at h; cases h
-    | some pl =>
+    | some fd =>
+      obtain ⟨f0, ds⟩ := fd
       rw [hpl] at h
       simp only [Bool.and_eq_true] at h
-      obtain ⟨asp, ptr, ts, d0, d1, d2, d3, hdl, hasp, hev⟩ := memShape_eval hrules hpl h.1
+      obtain ⟨ptr, ts, d0, d1, d2, d3, hdl, hasp, hev⟩ := memShapeLin_eval hrules hpl h.1
       rw [hdl] at h
       simp only [List.all_cons, List.all_nil, Bool.and_eq_true] at h
       have hmsg : c.msgAt asg i
-          = ((1 : ℕ), [asp, ptr, d0.eval vs asg, d1.eval vs asg, d2.eval vs asg,
+          = ((1 : ℕ), [f0.const, ptr, d0.eval vs asg, d1.eval vs asg, d2.eval vs asg,
               d3.eval vs asg, ts]) := by
         rw [Circuit.msgAt]
         exact Prod.ext hmem hev
@@ -221,12 +237,14 @@ theorem byteCheckOne_sound [Fact (1 < p)] {vs : List Variable} {rules : List (Pi
       rw [hbj] at h
       simp only [Bool.and_eq_true, beq_iff_eq] at h
       obtain ⟨⟨hbjmem, hbjmult⟩, h⟩ := h
-      cases hpli : payloadLin vs rules (c.busInteractions.get i).payload with
+      cases hpli : memShapeLin vs rules (c.busInteractions.get i).payload with
       | none => rw [hpli] at h; cases h
-      | some pli =>
-        cases hplj : payloadLin vs rules bj.payload with
+      | some fdi =>
+        obtain ⟨f0i, dsi⟩ := fdi
+        cases hplj : memShapeLin vs rules bj.payload with
         | none => rw [hpli, hplj] at h; cases h
-        | some plj =>
+        | some fdj =>
+          obtain ⟨f0j, dsj⟩ := fdj
           rw [hpli, hplj] at h
           simp only [Bool.and_eq_true, beq_iff_eq] at h
           obtain ⟨⟨hshi, hshj⟩, hdeq⟩ := h
@@ -246,20 +264,20 @@ theorem byteCheckOne_sound [Fact (1 < p)] {vs : List Variable} {rules : List (Pi
           have hactj : c.activeStateful (openVmGuestRules defaultBusMap openVmMemBusId) asg
               ⟨j, hjlt⟩ := ⟨by rw [hget, hbjmem]; rfl, hmultj⟩
           have hlowj := hlow ⟨j, hjlt⟩ (Fin.lt_def.mpr hji) hactj
-          obtain ⟨aspi, ptri, tsi, a0, a1, a2, a3, hdli, haspi, hevi⟩ :=
-            memShape_eval hrules hpli hshi
-          obtain ⟨aspj, ptrj, tsj, b0, b1, b2, b3, hdlj, haspj, hevj⟩ :=
-            memShape_eval hrules hplj hshj
+          obtain ⟨ptri, tsi, a0, a1, a2, a3, hdli, haspi, hevi⟩ :=
+            memShapeLin_eval hrules hpli hshi
+          obtain ⟨ptrj, tsj, b0, b1, b2, b3, hdlj, haspj, hevj⟩ :=
+            memShapeLin_eval hrules hplj hshj
           rw [hdli, hdlj] at hdeq
           simp only [List.cons.injEq, and_true] at hdeq
           obtain ⟨e0, e1, e2, e3⟩ := hdeq
           have hmsgj : c.msgAt asg ⟨j, hjlt⟩
-              = ((1 : ℕ), [aspj, ptrj, b0.eval vs asg, b1.eval vs asg, b2.eval vs asg,
+              = ((1 : ℕ), [f0j.const, ptrj, b0.eval vs asg, b1.eval vs asg, b2.eval vs asg,
                   b3.eval vs asg, tsj]) := by
             rw [Circuit.msgAt, hget]
             exact Prod.ext hbjmem hevj
           have hmsgi : c.msgAt asg i
-              = ((1 : ℕ), [aspi, ptri, a0.eval vs asg, a1.eval vs asg, a2.eval vs asg,
+              = ((1 : ℕ), [f0i.const, ptri, a0.eval vs asg, a1.eval vs asg, a2.eval vs asg,
                   a3.eval vs asg, tsi]) := by
             rw [Circuit.msgAt]
             exact Prod.ext hmem hevi
