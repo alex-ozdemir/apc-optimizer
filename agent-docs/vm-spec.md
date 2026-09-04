@@ -99,51 +99,54 @@ residual case on a pass's concrete output instead of proving it in general.
 
 ## Completeness
 
-No theorem currently derives `VmCompleteReplacement` for a whole VM, and the obstacle is not proof
-effort so much as a shape mismatch. `VmCompleteReplacement` is definitionally
-`VmSoundReplacement host G' G` — the same existential shape as soundness, just the two lists
-swapped — but that shape cannot be reached from `Circuit.isSoundReplacementOf` alone: soundness is
-a one-directional containment, and an optimizer that replaced every chip with an unsatisfiable
-circuit would be trivially sound and nowhere near complete. What is needed instead is the genuinely
-different, per-chip `Circuit.isCompleteReplacementOf` — already proved per pass and composed to the
-top of the audited, non-VM optimizer (`PassCorrect`'s fourth conjunct,
-`OptimizerPasses/Basic.lean`) — threaded through a `Connection.lean`-shaped induction that has not
-been written.
+`vmCompleteReplacement_of_forall₂` (`Implementation/Connection.lean`) derives
+`VmCompleteReplacement` for a whole VM, and `openVm_vmCompleteReplacement` /
+`openVm_vmEquivalent` (`Theorems.lean`) are its OpenVM instances. It rests on **one** assumption
+beyond soundness's own, `Host.forcesAdmissible`, and on nothing else.
 
-A cheaper route than a second induction is worth ruling in first. `VmCompleteReplacement host G G'`
-*is* `VmSoundReplacement host G' G`, so `vmSoundReplacement_of_forall₂` can be applied with the two
-lists swapped, provided each pair yields the reversed `Circuit.isSoundReplacementOf`. Unfolding both
-definitions, `Circuit.isCompleteReplacementOf` delivers exactly that shape, with the existential
-witnessed by `Derivations.witgen`, modulo two things: its `guaranteesInvariants` conjunct points the
-wrong way (but `vmSoundReplacement_cons` only ever uses `hSound.1`, so weakening those three
-theorems to the first conjunct unblocks it), and its `Circuit.admissible` gate.
+There is no second induction. `VmCompleteReplacement host G G'` *is*
+`VmSoundReplacement host G' G` — the same proposition with the lists swapped — so the existing
+lifting runs unchanged, once two things are dealt with:
 
-That gate is the real cost, and it is **not** a corner case. Measured over the shipped corpus at the
-`opt` stage, normalizing addresses to linear form so that pointers differing by a constant offset
-count as distinct: **79 of 100 `openvm-eth` APCs**, 32 of 100 `wasm-eth`, and both the keccak and
-sha256 blocks carry at least one send→receive pair on the memory bus whose two addresses cannot be
-told apart statically — two accesses at independently computed pointers, where `admissible` demands
-the second's previous record equal the first's new one. The canonical shape is a load through one
-pointer register followed by a store through another. Deriving that from `VmSat`'s balance is the
-global→local argument, and it is what a completeness proof has to pay for.
+* **The `guaranteesInvariants` conjunct points the wrong way** under the swap. It turned out to be
+  dead: no step of the lifting ever read it. `Circuit.replacesOn` is the half that *is* read, and
+  the three lifting theorems are now stated on it, with the old `isSoundReplacementOf` versions
+  kept as corollaries at the trivial filter.
+* **Per-chip completeness is conditional.** `Circuit.isCompleteReplacementOf` guarantees nothing
+  about an assignment that is not `Circuit.admissible`, so the lifting may only be applied to
+  instances the VM realizes, and only if those are admissible. That is what `Circuit.replacesOn`'s
+  filter `P` carries, and what `Host.forcesOn` supplies. Soundness instantiates the filter at
+  `True` and pays nothing.
 
-Note that the four APCs audited before `TwoLoads` are all in the *vacuous* 21%: their memory
-addresses are literal register numbers (or, in `LoadBranch`, one lone main-memory access), so
-`admissibleMemoryBus` asks nothing of them. Prototyping per-instance admissibility against those
-alone would make it look like a syntactic checker suffices, and that would not survive contact with
-the rest of the corpus.
+The existential the swapped lifting needs is supplied by witness generation itself
+(`witgenTotal`, `replacesOn_of_isCompleteReplacementOf`).
 
-That induction would also need a VM-level notion of "real trace" that does not exist yet.
-`Circuit.isCompleteReplacementOf`'s guarantee is gated on `Circuit.admissible`, which checks a
-memory-ordering discipline (`admissibleMemoryBus`, `MemoryBus.lean`) over *one circuit's own local*
-list of stateful bus interactions — the right scope when that circuit is a whole program, which is
-what the non-VM optimizer assumes. A guest chip here is one instruction (or fused block) among
-possibly thousands in a run, so the real "this is an honest execution" property spans every chip
-instance stitched together by the host over real time — a fact no definition in `VmSpec/` states
-today. Building it, and showing a genuine run's per-instance restriction satisfies each chip's own
-local `admissible`, is new work; it will likely reuse the execution-bridge/offset machinery built
-for soundness (`StepLayout`, `Implementation/Chain.lean`, `Implementation/OpenVmChain.lean`) but
-pointed at a different conclusion.
+### The one remaining obligation
+
+`Host.forcesAdmissible host bs` — the VM only realizes `Circuit.admissible` guest assignments.
+It is stated in the shape of `Host.ordersRanks`: quantified over whatever legal chips the host runs
+and over `VmSat` assignments, mentioning no particular circuit.
+
+It cannot be weakened into a per-circuit legality clause, and that is not a matter of taste.
+`Circuit.admissible` is a memory-discipline claim — a record read back carries what was written —
+and a chip's own constraints do not force it: `Apcs/TwoLoads/` has satisfying, bus-accepting
+assignments that violate it whenever its two computed pointers coincide. What makes it true of a
+*run* is global.
+
+What it should be derived from, and why that is now the tractable shape:
+
+* **bus balance** — already a conjunct of `VmSat` (`balances`);
+* **window atomicity** — per address, at most one record enters an instance's window from outside,
+  which is what the arc/disjoint-window machinery of `Chain.lean`/`OpenVmChain.lean`
+  (`memMsg_arc_unique`, `openVmHost_receivesArePast`) was built to establish.
+
+Nothing in the completeness path looks inside `Circuit.admissible`, so all of the above is
+**unchanged by a change of memory discipline**. Adopting the order-free multiset discipline of
+`1arie1:exp/order-free-admissibility` is a drop-in: it replaces what `forcesAdmissible` must prove
+without touching a line of the lifting. It is also the better target — its statement is exactly
+"balance plus window atomicity" in multiset form, where the positional discipline additionally
+demands a *pairing* between a specific send and a specific receive, and carries a list-order
+assumption the VM level would have to bridge to `StepLayout`'s offsets.
 
 ## What is proven against real APCs (`Audit/Apcs/`)
 
