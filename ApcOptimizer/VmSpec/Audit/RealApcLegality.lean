@@ -7,18 +7,12 @@ import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Opt
 import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Gated
 import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.GatedPinned
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.Unopt
-import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.Unopt
-import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.Opt
-import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.Gated
-import ApcOptimizer.VmSpec.Audit.Apcs.SingleXor.GatedPinned
-import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Unopt
-import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Opt
-import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.Gated
-import ApcOptimizer.VmSpec.Audit.Apcs.SingleBeq.GatedPinned
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.UnoptChained
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.Opt
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.Gated
 import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.GatedPinned
+import ApcOptimizer.VmSpec.Audit.Apcs.AndBranch.Opt
+import ApcOptimizer.VmSpec.Audit.Apcs.LoadBranch.Opt
 
 /-! **`Circuit.legalGuest` measured against real APCs.**
 
@@ -53,6 +47,15 @@ import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.GatedPinned
     | `Keccak2105000` | a keccak basic block, four fused instructions | the real thing: a big block, a branch at the end, a masked write |
     | `SingleXor` | `[x8] = [x7] ^ [x5]` | one instruction: a fresh write whose byte-ness comes from the bitwise table |
     | `SingleBeq` | `if [x8] == [x5] jump +2` | a *branching* step: `pc` out is `4 - 2·cmp`, and nothing is written |
+    | `AndBranch` | `andi` then branch-if-nonzero, two fused instructions | a masked write, whose byte-ness the bitwise table gives *by lookup* (`isByte_of_andEq`) rather than by constraint |
+    | `LoadBranch` | `loadw` then `beq`, two fused instructions | *main memory*: an access in address space `2`, at a pointer the circuit computes, echoed on into a register |
+
+    The last two come straight out of the shipped benchmark corpus
+    (`Benchmarks/OpenVM/openvm-eth/apc_056_pc0x200bd4` and `apc_072_pc0x391014`), which ships two
+    stages per APC: the unoptimized block and the pre-gate `.powdr_opt`. The latter is the `opt`
+    column below, the stage at which legality is actually claimed, and the only one they carry —
+    the `unopt` and `gated` columns' story is about powdr's passes, and the three APCs above
+    already tell it at both ends.
 
     ## What is checked, per stage
 
@@ -61,6 +64,8 @@ import ApcOptimizer.VmSpec.Audit.Apcs.Keccak2105000.GatedPinned
     | `statelessSendOnly` | **true** | **true** | true, out of checker reach |
     | `statefulPolarity` | **true** | **true** | true, out of checker reach |
     | `hasStepLayout` | fused: **false**; single: **true** | **true** | **false**, padding row |
+
+    `AndBranch` and `LoadBranch` fill the `opt` column only; the other three fill all of it.
 
     The two falsities split cleanly. The gated stage's padding row reproduces on a
     single-instruction APC exactly as on a fused block, so *that* gap is powdr's gating pass, not

@@ -131,9 +131,9 @@ share, and one file per stage carries that stage's proofs — split because each
 `hasStepLayout` is a slow `decide`, so they compile in parallel. `Apcs/Common.lean` holds what no
 APC owns; `Audit/RealApcLegality.lean` imports them all and is the index.
 
-Three APCs are audited, each at three points of powdr's own optimizer pipeline — same block, same
-semantics, three forms, so a difference between results is a statement about the optimizer, not
-about the block:
+Five APCs are audited. Three of them at three points of powdr's own optimizer pipeline — same
+block, same semantics, three forms, so a difference between results is a statement about the
+optimizer, not about the block:
 
 | | what it is |
 | --- | --- |
@@ -145,6 +145,19 @@ about the block:
 | --- | --- | --- | --- |
 | `statelessSendOnly` / `statefulPolarity` | true | true | true, out of checker reach |
 | `hasStepLayout` | fused: **false** — unchained steps; single: **true** | **true** — one step | **false** — padding row |
+
+The other two come out of the shipped benchmark corpus, which carries only the pre-gate stage, so
+they are audited at that one stage — the trivially-simplified column, where legality is actually
+claimed. Each reaches `opt_legalGuest`, and each brings a shape the first three do not have:
+
+| | what it is | what is new |
+| --- | --- | --- |
+| `Apcs/AndBranch/` | `apc_056_pc0x200bd4`: `andi` then branch-if-nonzero, two fused instructions | a masked write, byte-valued because a *lookup* says so (`isByte_of_andEq`), not because a constraint does |
+| `Apcs/LoadBranch/` | `apc_072_pc0x391014`: `loadw` then `beq`, two fused instructions | main memory — address space `2`, at a pointer the circuit computes, echoed on into a register |
+
+`LoadBranch` is why `ByteCheck.lean`'s `memShape` admits both byte-checked address spaces rather
+than registers alone: `MemoryPayload.isByteChecked` covers `1` and `2`, and a load's echo crosses
+from one to the other.
 
 Both falsities are properties of the circuits, not the clause, and they split cleanly. That the
 gated stage's padding row reproduces on a single-instruction APC says that gap is powdr's gating

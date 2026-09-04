@@ -494,3 +494,46 @@ ApcOptimizer.OpenVM.sideEffects_eq
 ApcOptimizer.OpenVM.looseTabled_not_isSoundReplacementOf
 ApcOptimizer.OpenVM.checkedStepChip_legalGuest
 ApcOptimizer.OpenVM.openVm_sound_but_illegal
+
+# The two blocks straight out of the shipped benchmark corpus (`Audit/Apcs/AndBranch/`,
+# `Audit/Apcs/LoadBranch/`), audited at the one stage those dumps carry: `.powdr_opt`, the
+# pre-gate analogue of the other three APCs' `opt`.
+ApcOptimizer.OpenVM.AndBranch.layoutVars
+ApcOptimizer.OpenVM.AndBranch.baseE
+ApcOptimizer.OpenVM.AndBranch.baseF
+ApcOptimizer.OpenVM.AndBranch.witnesses
+ApcOptimizer.OpenVM.AndBranch.opt_checkMultiplicities
+ApcOptimizer.OpenVM.AndBranch.opt_legalMultiplicities
+ApcOptimizer.OpenVM.AndBranch.opt_no_padding_row
+ApcOptimizer.OpenVM.AndBranch.optPinRules
+ApcOptimizer.OpenVM.AndBranch.optPinRules_hold
+ApcOptimizer.OpenVM.AndBranch.optBaseLin
+ApcOptimizer.OpenVM.AndBranch.optBridgeCheck
+ApcOptimizer.OpenVM.AndBranch.optByteCheck
+ApcOptimizer.OpenVM.AndBranch.recipes
+ApcOptimizer.OpenVM.AndBranch.optPlaceCheck
+ApcOptimizer.OpenVM.AndBranch.optOrderCheck
+ApcOptimizer.OpenVM.AndBranch.optFitsCheck
+ApcOptimizer.OpenVM.AndBranch.optLookbacks
+ApcOptimizer.OpenVM.AndBranch.optWriteOk
+ApcOptimizer.OpenVM.AndBranch.opt_hasStepLayout
+ApcOptimizer.OpenVM.AndBranch.opt_legalGuest
+ApcOptimizer.OpenVM.LoadBranch.layoutVars
+ApcOptimizer.OpenVM.LoadBranch.baseE
+ApcOptimizer.OpenVM.LoadBranch.baseF
+ApcOptimizer.OpenVM.LoadBranch.witnesses
+ApcOptimizer.OpenVM.LoadBranch.opt_checkMultiplicities
+ApcOptimizer.OpenVM.LoadBranch.opt_legalMultiplicities
+ApcOptimizer.OpenVM.LoadBranch.opt_no_padding_row
+ApcOptimizer.OpenVM.LoadBranch.optPinRules
+ApcOptimizer.OpenVM.LoadBranch.optPinRules_hold
+ApcOptimizer.OpenVM.LoadBranch.optBaseLin
+ApcOptimizer.OpenVM.LoadBranch.optBridgeCheck
+ApcOptimizer.OpenVM.LoadBranch.optByteCheck
+ApcOptimizer.OpenVM.LoadBranch.recipes
+ApcOptimizer.OpenVM.LoadBranch.optPlaceCheck
+ApcOptimizer.OpenVM.LoadBranch.optOrderCheck
+ApcOptimizer.OpenVM.LoadBranch.optFitsCheck
+ApcOptimizer.OpenVM.LoadBranch.optLookbacks
+ApcOptimizer.OpenVM.LoadBranch.opt_hasStepLayout
+ApcOptimizer.OpenVM.LoadBranch.opt_legalGuest

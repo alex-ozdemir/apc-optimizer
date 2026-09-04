@@ -93,13 +93,15 @@ import ApcOptimizer.VmSpec.Implementation.Validation
       powdr's optimizer pipeline, one directory per APC (its `Stages.lean` emitted from the stage
       dumps by `Scripts/emit-apc-lean.py`, one file of proofs per stage) over the shared
       `Apcs/Common.lean`; `Audit/RealApcLegality.lean` imports them all and is the index. Both
-      multiplicity clauses hold at every stage of every APC. `hasStepLayout` holds of the
+      multiplicity clauses hold at every stage audited. `hasStepLayout` holds of the
       trivially-simplified stage, proved almost entirely through the checkers above
       (`opt_hasStepLayout`); it is false of the optimizer's final output, on the all-zero padding
       row its fresh `is_valid` column makes algebraically satisfying (`gated_not_hasStepLayout`),
       and — for a *fused* block — false of the unoptimized stage, whose instructions' bridge states
       do not cancel without powdr's substitution pass. Same block at every stage, so each falsity
-      is a statement about the optimizer, not about the block.
+      is a statement about the optimizer, not about the block. Three APCs are carried through all
+      three stages; two more (`AndBranch`, `LoadBranch`) come from the shipped benchmark corpus,
+      which dumps only the pre-gate stage, and are audited there.
     * `Audit/SoundnessGivesLegality.lean` — how much of `Circuit.legalGuest` a chip-level soundness
       proof already gives for free, and where the residue is real: legality of the optimizer's
       output cannot be derived from soundness alone (a per-chip `Circuit.isSoundReplacementOf`
