@@ -793,9 +793,9 @@ theorem unoptChained_memSendsOk {asg : ChipAssignment babyBear}
     exact (openVmPayloadOk_mem_iff _ _ _ _ _ _).mpr ⟨h0, h1, h2, h3⟩
 
 /-- Where each of `unoptChained`'s `71` interactions sits, as an upper bound on its
-    offset from `from_state__timestamp_0`: the four fused steps' local offsets (mirroring
-    `opt`'s `offsetUb`, one memory gadget's receive/send pair per instruction, two
-    for the branch's `rs1`/`rs2`), shifted by each instruction's own `3`-tick advance
+    offset from `from_state__timestamp_0`: the four fused steps' local offsets (one memory
+    gadget's receive/send pair per instruction, two for the branch's `rs1`/`rs2`), shifted by
+    each instruction's own `3`-tick advance
     (`chainedTimes`). Stateless positions, and the inactive `rs2` gadgets `rs2_as_i = 0` disables,
     get a placeholder far below every real offset — the domination check below never reads
     them for anything but a `<`, and they are never `activeStateful` either way. -/

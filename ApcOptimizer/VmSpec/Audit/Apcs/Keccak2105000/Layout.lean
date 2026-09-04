@@ -12,23 +12,6 @@ set_option maxRecDepth 8000
 
 namespace ApcOptimizer.OpenVM.Keccak2105000
 
-/-- Where each of `opt`'s twelve stateful interactions sits, as an offset from the step's
-    `from_state__timestamp_0`. Positions `7` and `13`–`22` are the stateless lookups and never read.
-    The five receives look back by their own gadget's `n`; the six sends and the bridge receive sit
-    at literal offsets. -/
-def offsets (n0 nw0 nr1 nw1 nr3 : ℕ) : List ℤ :=
-  [-1 - (n0 : ℤ), 0, 1 - nw0, 0, 2 - nr1, 4 - nw1, 5, 0, 6, 9, 9 - nr3, 10, 11]
-
-/-- The largest offset each position can hold: a receive's is `δ - n` for a lookback `n ≥ 0`, so
-    `δ` bounds it; the six sends attain their entry exactly. -/
-def offsetUb : List ℤ := [-1, 0, 1, 0, 2, 4, 5, 0, 6, 9, 9, 10, 11]
-
-/-- Each of the six sends dominates every position before it. With `offsetUb` this is the whole
-    of `StepLayout.ordered` for this circuit — a `decide` over positions, which is what stating the
-    layout in integer offsets rather than field timestamps buys. -/
-theorem offsetUb_dominates :
-    ∀ b ∈ [1, 6, 8, 9, 11, 12], ∀ k < b, offsetUb.getD k 0 < offsetUb.getD b 0 := by decide
-
 /-- The variables the optimized APC's stateful payloads and lt gadgets mention: the step's base,
     the branch flag the outgoing `pc` depends on, each gadget's `prev_timestamp` and low
     decomposition limb, and every memory payload's data limbs -- `placeCheckAll` normalizes a

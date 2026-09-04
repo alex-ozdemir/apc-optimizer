@@ -91,8 +91,8 @@ vmSoundReplacement_of_forall₂
 # `Audit/Apcs/` measures the legality clauses against real APCs, one directory per APC. Like
 # every other `VmSpec/` file it is unreachable from the four roots; its own roots are each APC's
 # per-stage results and the lemmas `Apcs/Common.lean` shares between them — the lt gadget as
-# powdr's optimizer leaves it (`lt_gadget_offset`), the bitwise table's masking arm
-# (`isByte_of_xorThree`) and the offset tables each `opt_hasStepLayout` places by.
+# powdr's optimizer leaves it (`lt_gadget_offset`) and the bitwise table's masking arm
+# (`isByte_of_xorThree`).
 ApcOptimizer.OpenVM.babyBear_negOne
 ApcOptimizer.OpenVM.babyBear_negOne_ne_one
 ApcOptimizer.OpenVM.babyBear_negOne_ne_zero
@@ -100,7 +100,6 @@ ApcOptimizer.OpenVM.lt_gadget_offset
 ApcOptimizer.OpenVM.xor_three
 ApcOptimizer.OpenVM.isByte_of_xorThree
 ApcOptimizer.OpenVM.acceptsAt
-ApcOptimizer.OpenVM.Keccak2105000.offsetUb_dominates
 ApcOptimizer.OpenVM.Keccak2105000.opt_hasStepLayout
 ApcOptimizer.OpenVM.Keccak2105000.opt_legalGuest
 ApcOptimizer.OpenVM.allEffects_eq_zero_of_mults_zero
@@ -250,9 +249,6 @@ ApcOptimizer.OpenVM.SingleXor.gatedBridgeCheck
 ApcOptimizer.OpenVM.SingleXor.gatedByteCheck
 ApcOptimizer.OpenVM.SingleXor.gatedPinned_hasStepLayout
 ApcOptimizer.OpenVM.SingleXor.gatedPinned_legalGuest
-ApcOptimizer.OpenVM.SingleXor.offsets
-ApcOptimizer.OpenVM.SingleXor.offsetUb
-ApcOptimizer.OpenVM.SingleXor.offsetUb_dominates
 ApcOptimizer.OpenVM.SingleXor.layoutVars
 ApcOptimizer.OpenVM.SingleXor.baseE
 ApcOptimizer.OpenVM.SingleXor.baseF
@@ -306,9 +302,6 @@ ApcOptimizer.OpenVM.SingleBeq.gatedBridgeCheck
 ApcOptimizer.OpenVM.SingleBeq.gatedByteCheck
 ApcOptimizer.OpenVM.SingleBeq.gatedPinned_hasStepLayout
 ApcOptimizer.OpenVM.SingleBeq.gatedPinned_legalGuest
-ApcOptimizer.OpenVM.SingleBeq.offsets
-ApcOptimizer.OpenVM.SingleBeq.offsetUb
-ApcOptimizer.OpenVM.SingleBeq.offsetUb_dominates
 ApcOptimizer.OpenVM.SingleBeq.layoutVars
 ApcOptimizer.OpenVM.SingleBeq.baseE
 ApcOptimizer.OpenVM.SingleBeq.baseF
@@ -351,8 +344,8 @@ ApcOptimizer.OpenVM.memSendsOk_of_sendsOk
 ApcOptimizer.OpenVM.defaultBusMap_mem_unique
 ApcOptimizer.OpenVM.maintainsInvariants_off_mem
 
-# `Keccak2105000/UnoptChained.lean`'s `memOrdered`: a `decide` over the offset-upper-bound table,
-# mirroring `Layout.lean`'s `offsetUb_dominates`.
+# `Keccak2105000/UnoptChained.lean`'s `memOrdered`: a `decide` over the offset-upper-bound table
+# it places by, this stage being the one that cannot use `Audit/PlaceCheck.lean`'s recipes.
 ApcOptimizer.OpenVM.Keccak2105000.unoptOffsetUb_dominates
 
 # `Keccak2105000/UnoptChained.lean`'s full step layout, and the

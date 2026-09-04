@@ -11,24 +11,6 @@ set_option maxRecDepth 8000
 
 namespace ApcOptimizer.OpenVM.SingleXor
 
-/-- Where each of the optimized APC's six stateful interactions sits, as an offset from the step's
-    `from_state__timestamp_0`. Positions `0`–`3` and `12`–`17` are the bitwise and range lookups
-    and are never read. The three receives look back by their own gadget's `n`; the two memory
-    sends and the bridge sit at literal offsets. -/
-def offsets (nr0 nr1 nw : ℕ) : List ℤ :=
-  [0, 0, 0, 0, -1 - (nr0 : ℤ), 0, -(nr1 : ℤ), 1, 1 - (nw : ℤ), 2, 0, 3, 0, 0, 0, 0, 0, 0]
-
-/-- The largest offset each position can hold: a receive's is `δ - n` for a lookback `n ≥ 0`, so
-    `δ` bounds it; the three sends attain their entry exactly. The lookups are never placed, so
-    their entries only have to sit below every send that follows them. -/
-def offsetUb : List ℤ :=
-  [-2, -2, -2, -2, -1, 0, 0, 1, 1, 2, 0, 3, 0, 0, 0, 0, 0, 0]
-
-/-- Each of the three sends dominates every position before it. With `offsetUb` this is the whole
-    of `StepLayout.ordered` for this circuit — a `decide` over positions. -/
-theorem offsetUb_dominates :
-    ∀ b ∈ [5, 7, 9, 11], ∀ k < b, offsetUb.getD k 0 < offsetUb.getD b 0 := by decide
-
 /-- The variables the optimized APC's stateful payloads and lt gadgets mention: the step's base,
     each gadget's `prev_timestamp` and low decomposition limb, and the four data limbs of each of
     the two reads, the write, and the record the write displaces. -/
