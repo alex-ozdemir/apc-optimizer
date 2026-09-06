@@ -18,7 +18,7 @@ set_option autoImplicit false
     The per-chip facts are one `HostChip.canProduce` each — see `VmSpec/OpenVm.lean`:
 
     * the four lookup chips pin `message.1` to their own bus id, so they contribute `0` on memory;
-    * `memoryInitHostChipOF` contributes `0` or `1`, so `0` once it is known not to send;
+    * `memoryInitHostChip` contributes `0` or `1`, so `0` once it is known not to send;
     * `memoryFinalizeHostChip` contributes `0` or `-1`, and runs at most once;
     * `connectorHostChip` is `busStateOf` of two execution-bridge interactions, so `0` on memory;
     * `inputHostChip` is `busStateOf` of six interactions, of which only the two memory sends can
@@ -106,7 +106,7 @@ theorem inputRead_no_send_of {r : InputRead p} {ptrReg : Nat} {m : BusMessage p}
 /-- **At a memory message the host either sends it, or is non-positive there and its net names
     exactly the receives it makes.**
 
-    The two possible host senders are named explicitly: `memoryInitHostChipOF`'s single instance
+    The two possible host senders are named explicitly: `memoryInitHostChip`'s single instance
     (whose whole contribution is `+1` where it is nonzero) and an input-chip instance's own two
     memory sends. Everything else on the host side can only receive, so failing both leaves the
     host's net an honest count with a negative sign — the shape bus balance needs.

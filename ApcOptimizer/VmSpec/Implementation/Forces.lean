@@ -28,7 +28,7 @@ set_option autoImplicit false
       "the host net is nonzero" is not enough.
     * `openVmHost_arcsPlaced` — every bridge arc, guest instance *and* input-chip instance alike,
       starts at an honest natural timestamp low enough to fit under `2 ^ 29`, and no two arcs'
-      windows overlap. Guests come back with a `StepLayoutOF`, so a caller gets `sendInWindow`,
+      windows overlap. Guests come back with a `StepLayout`, so a caller gets `sendInWindow`,
       `memPartner` and the placement together.
     * `openVmHost_recordGood` — TS_BOUND and `x0ReturnsZero` in one statement, for every memory
       record a realized guest instance touches: sends by their own placement, receives by record
@@ -38,14 +38,14 @@ set_option autoImplicit false
 
     ## Modelling gaps — all four closed
 
-    1. `memoryInitHostChipOF` pins `x0` to zero (the initial memory state's hardwired zero
+    1. `memoryInitHostChip` pins `x0` to zero (the initial memory state's hardwired zero
        register). Without it `x0ReturnsZero` is false of any chip that *reads* `x0`, which
        `Audit/Apcs/AndBranch` and `Keccak2105000` both do. Its address injectivity is what makes
        the initial image a *function* of the address — `init(τ) ≤ 1` in `MemChain.lean`'s count.
     2. `OpenVmParams.ptrRegNeZero`. `InputRead.interactions` writes address space `1` at `ptrReg`
        carrying byte-valued `ptrLimbs`; at `ptrReg = 0` that is a nonzero write to `x0`. As a
        field element, which is the form `x0ReturnsZero` compares against.
-    3. `StepLayoutOF.negOffsetOnlyMemRecv` — only a memory `getPrevious` may reach backwards.
+    3. `StepLayout.negOffsetOnlyMemRecv` — only a memory `getPrevious` may reach backwards.
        `bridgeNoOther` constrains only the *net* at a message, so a pair carrying the same
        execution-bridge message with multiplicities `-1` and `+1` nets to zero and may sit at
        offset `-(2^29 - 1)`, where the timestamp has wrapped. `Audit/BridgeOffsetGap.lean` proves
@@ -339,7 +339,8 @@ theorem natCast_inj_of_lt [Fact p.Prime] {A B : ℕ} (hA : A < p) (hB : B < p)
     `(pcFrom, tStart)` the step receives. No global argument is needed — unlike the memory bus. -/
 theorem openVm_admissibleBridge [Fact p.Prime] {c : Circuit p} {asg : ChipAssignment p}
     {maxWindow maxLookback : ℕ}
-    (L : StepLayout c (openVmGuestRules defaultBusMap openVmMemBusId) asg maxWindow maxLookback)
+    (L : StepLayout c (openVmGuestRules defaultBusMap openVmMemBusId) asg openVmMemAddress
+      maxWindow maxLookback)
     (h0 : (1 : ZMod p) ≠ 0) (h1 : (1 : ZMod p) ≠ -1)
     (hsize : c.busInteractions.length + 1 < p)
     (hpm : ∀ Q : List (ZMod p), c.pmAt asg ((openVmExecBusId, Q) : BusMessage p)) :
@@ -427,7 +428,7 @@ theorem openVmHost_bridge_isolated_of (P : OpenVmParams p)
   rw [← congrFun (hiR' i) m, congrFun (hiR i) m]
 
 /-- **Every arc of a run's execution bridge starts at an honest natural timestamp inside the
-    range OpenVM checks, and no two arcs' windows overlap.** Guest instances get a `StepLayoutOF` —
+    range OpenVM checks, and no two arcs' windows overlap.** Guest instances get a `StepLayout` —
     the *strong* layout, so callers can use `sendInWindow`, `memPartner` and friends and the
     timestamp equation at the same time — and input-chip instances get their `InputRead.base`.
 
@@ -443,7 +444,7 @@ theorem openVmHost_arcsPlaced [Fact p.Prime] (P : OpenVmParams p) {G : Guest p}
     (hiR : ∀ i, (a.hostAssignment (openVmInputChip P)).get i
         = busStateOf ((iR i).interactions P.ptrReg 0 1)) :
     ∃ (L : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
-        StepLayoutOF (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
+        StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
           ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound)
       (Tg : ((s : Fin G.length) × Fin (a.guestAssignments s).length) → ℕ)
       (Ti : Fin (a.hostAssignment (openVmInputChip P)).length → ℕ),
@@ -459,20 +460,20 @@ theorem openVmHost_arcsPlaced [Fact p.Prime] (P : OpenVmParams p) {G : Guest p}
   have hppos : 0 < p := Nat.lt_of_le_of_lt (Nat.zero_le _) hp
   haveI : NeZero p := ⟨by omega⟩
   have hNonempty : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
-      Nonempty (StepLayoutOF (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
+      Nonempty (StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
         ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound) :=
     fun x => (hGuests _ (List.get_mem G x.1)).stepLayout
       _ (hsat.satisfiesGuest x.1 _ (List.get_mem _ _))
       (satisfiesStateless_of_sinks (openVmHost_legalGuest_unpack P) (openVmHost_sinksAreTables P)
         hGuests hsat x.1 _ (List.get_mem _ _))
   set L : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
-      StepLayoutOF (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
+      StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
         ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound :=
     fun x => Classical.choice (hNonempty x) with hL
   set S : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
       StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
-        ((a.guestAssignments x.1).get x.2) P.maxWindow openVmTimestampBound :=
-    fun x => (L x).toStepLayout with hS
+        ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound :=
+    fun x => (L x) with hS
   obtain ⟨r, hrnet⟩ := openVmHost_bridge_isolated_of P hsat.satisfiesHost iR hiR
   have hbal : ∀ m : BusMessage p, m.1 = 0 →
       a.guestAssignments.busEffect m +
@@ -555,9 +556,9 @@ theorem cast_base_add_offset {T : ℕ} {off : ℤ} (hoff : 0 ≤ off) :
   ring
 
 /-- **A record the initial memory image sends is good.** Its timestamp is `0` (§4.6.2) and its
-    `x0` is zero (`memoryInitHostChipOF`'s third conjunct). -/
+    `x0` is zero (`memoryInitHostChip`'s third conjunct). -/
 theorem openVmHost_initSend_good [Fact p.Prime] (P : OpenVmParams p) {e : BusState p}
-    (hcan : (memoryInitHostChipOF (p := p)).canProduce e) {m : BusMessage p} (hne : e m ≠ 0) :
+    (hcan : (memoryInitHostChip (p := p)).canProduce e) {m : BusMessage p} (hne : e m ≠ 0) :
     openVmRecordGood m := by
   obtain ⟨hshape, -, hx0⟩ := hcan
   obtain ⟨hbus, -, f, -, -, ht, -⟩ := hshape m hne
@@ -626,7 +627,7 @@ theorem openVmHost_inputSend_good [Fact p.Prime] (P : OpenVmParams p) {r : Input
 --------- Record matching ---------
 
 /-- On a stateful bus a guest chip's multiplicities are `0`/`±1` — `Circuit.pmAt`, from
-    `legalGuestOF.polarity`. -/
+    `legalGuest.polarity`. -/
 theorem openVmHost_pmAt (P : OpenVmParams p) {G : Guest p}
     (hGuests : (openVmHost P).legalGuests G)
     {a : VmAssignment p ⟨openVmHost P, G⟩} (hsat : VmSat ⟨openVmHost P, G⟩ a)
@@ -756,12 +757,12 @@ theorem openVmHost_inputWitnesses (P : OpenVmParams p)
 
 /-- **A record a guest instance sends is good.** `sendInWindow` puts the send at a non-negative
     offset inside the step's own window, `openVmHost_arcsPlaced` puts the window's base at an
-    honest natural, and `legalGuestOF.x0Zero` is the `x0` half. -/
+    honest natural, and `legalGuest.x0Zero` is the `x0` half. -/
 theorem openVmHost_guestSend_good [Fact p.Prime] (P : OpenVmParams p) {G : Guest p}
     (hGuests : (openVmHost P).legalGuests G)
     {a : VmAssignment p ⟨openVmHost P, G⟩} (hsat : VmSat ⟨openVmHost P, G⟩ a)
     {L : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
-        StepLayoutOF (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
+        StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
           ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound}
     (hL : ∀ x, ∃ T : ℕ, 1 + T + (L x).tWindow < openVmTimestampBound ∧
         (L x).tStart = ((1 + T : ℕ) : ZMod p))
@@ -876,7 +877,7 @@ theorem memTsFieldOf_default {busId tsField : Nat}
   | (n + 8) => simp [memTsFieldOf, defaultBusMap] at h
 
 /-- **An execution-bridge state a realized instance touches carries an honest timestamp.** The
-    clause that makes this true is `StepLayoutOF.negOffsetOnlyMemRecv`: without it a chip may
+    clause that makes this true is `StepLayout.negOffsetOnlyMemRecv`: without it a chip may
     carry a cancelling pair of bridge messages at an offset of `-(2^29 - 1)`, where the timestamp
     has wrapped — `Audit/BridgeOffsetGap.lean` exhibits exactly that. -/
 theorem openVmHost_bridgeGood [Fact p.Prime] (P : OpenVmParams p) {G : Guest p}

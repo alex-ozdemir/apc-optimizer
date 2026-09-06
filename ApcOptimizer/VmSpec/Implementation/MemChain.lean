@@ -467,7 +467,7 @@ theorem recvIdx_unique {c : Circuit p} {asg : ChipAssignment p} {m : BusMessage 
 theorem openVmHost_guestSend_ts [Fact p.Prime] (P : OpenVmParams p) {G : Guest p}
     {a : VmAssignment p ⟨openVmHost P, G⟩}
     {L : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
-        StepLayoutOF (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
+        StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
           ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound}
     {Tg : ((s : Fin G.length) × Fin (a.guestAssignments s).length) → ℕ}
     (hgP : ∀ x, 1 + Tg x + (L x).tWindow < openVmTimestampBound ∧
@@ -490,7 +490,7 @@ theorem openVmHost_guestSend_ts [Fact p.Prime] (P : OpenVmParams p) {G : Guest p
 
 /-- **The initial memory image stamps every record it sends with `0`** (§4.6.2). -/
 theorem openVmHost_initSend_ts {e : BusState p}
-    (hcan : (memoryInitHostChipOF (p := p)).canProduce e) {m : BusMessage p} (hne : e m ≠ 0) :
+    (hcan : (memoryInitHostChip (p := p)).canProduce e) {m : BusMessage p} (hne : e m ≠ 0) :
     tsNat m 0 := by
   obtain ⟨hshape, -, -⟩ := hcan
   obtain ⟨hbus, -, f, -, -, ht, -⟩ := hshape m hne
@@ -614,7 +614,7 @@ theorem runSendCount_le_one [Fact p.Prime] (P : OpenVmParams p) {G : Guest p}
     {a : VmAssignment p ⟨openVmHost P, G⟩} (hsat : VmSat ⟨openVmHost P, G⟩ a)
     (iR : Fin (a.hostAssignment (openVmInputChip P)).length → InputRead p)
     {L : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
-        StepLayoutOF (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
+        StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
           ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound}
     {Tg : ((s : Fin G.length) × Fin (a.guestAssignments s).length) → ℕ}
     {Ti : Fin (a.hostAssignment (openVmInputChip P)).length → ℕ}
@@ -748,7 +748,7 @@ theorem runRecvCount_le_one [Fact p.Prime] (P : OpenVmParams p) {G : Guest p}
     (hiR : ∀ i, (a.hostAssignment (openVmInputChip P)).get i
         = busStateOf ((iR i).interactions P.ptrReg 0 1))
     {L : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
-        StepLayoutOF (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
+        StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
           ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound}
     {Tg : ((s : Fin G.length) × Fin (a.guestAssignments s).length) → ℕ}
     {Ti : Fin (a.hostAssignment (openVmInputChip P)).length → ℕ}
@@ -785,7 +785,7 @@ structure RunData (P : OpenVmParams p) (G : Guest p) (a : VmAssignment p ⟨open
   iR : Fin (a.hostAssignment (openVmInputChip P)).length → InputRead p
   hiR : ∀ i, (a.hostAssignment (openVmInputChip P)).get i
       = busStateOf ((iR i).interactions P.ptrReg 0 1)
-  L : ∀ x : GuestInst P a, StepLayoutOF (G.get x.1)
+  L : ∀ x : GuestInst P a, StepLayout (G.get x.1)
       (openVmGuestRules defaultBusMap openVmMemBusId)
       ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound
   Tg : GuestInst P a → ℕ
@@ -809,7 +809,7 @@ theorem openVmHost_runData [Fact p.Prime] (P : OpenVmParams p) {G : Guest p}
 --------- The run's memory accesses, as one index type ---------
 
 /-- A memory *access* somewhere in a run: for a guest instance, the index of its `getPrevious`
-    half (the `setNew` half is `StepLayoutOF.memPartner` of it); for an input-chip instance, which
+    half (the `setNew` half is `StepLayout.memPartner` of it); for an input-chip instance, which
     of its two accesses — `0` the pointer-register peek, `1` the hinted word. -/
 abbrev RunAcc (P : OpenVmParams p) {G : Guest p} (a : VmAssignment p ⟨openVmHost P, G⟩) :=
   ((x : GuestInst P a) × Fin (G.get x.1).busInteractions.length)
@@ -894,7 +894,7 @@ noncomputable instance (D : RunData P G a) (addr : List (Option (ZMod p))) (c : 
     Decidable (D.IsAcc addr c) := Classical.dec _
 
 /-- **§4.6.1's `t_prev < t`, for every access in the run.** Guests have it from
-    `StepLayoutOF.memPartner_time`, input-chip instances from `InputRead.ptrOffsetOk` and
+    `StepLayout.memPartner_time`, input-chip instances from `InputRead.ptrOffsetOk` and
     `wordOffsetOk`. This is the hypothesis the whole counting argument turns on. -/
 theorem recvT_lt_sendT (D : RunData P G a) {addr : List (Option (ZMod p))} {c : RunAcc P a}
     (hc : D.IsAcc addr c) : D.recvT c < D.sendT c := by
@@ -1653,7 +1653,7 @@ theorem openVmHost_forcesAdmissible [Fact p.Prime] (P : OpenVmParams p) :
         (hsat.satisfiesGuest t asg hasg)
         (satisfiesStateless_of_sinks (openVmHost_legalGuest_unpack P)
           (openVmHost_sinksAreTables P) hlegal hsat t asg hasg)).elim (fun L => ?_)
-      refine openVm_admissibleBridge L.toStepLayout h0 h1 ?_
+      refine openVm_admissibleBridge L h0 h1 ?_
         (fun Q => openVmHost_pmAt P hlegal hsat rfl t asg hasg)
       have := (hlegal (G.get t) (List.get_mem G t)).size
       have := openVmHost_maxInteractions_lt P hsat t hasg

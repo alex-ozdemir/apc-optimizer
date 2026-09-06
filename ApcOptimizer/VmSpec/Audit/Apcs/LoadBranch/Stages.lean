@@ -9,7 +9,7 @@ set_option maxHeartbeats 1000000
     comparing the loaded word to another register. Unlike every other APC audited here it touches
     *main memory* -- address space `2`, at a pointer the circuit computes -- and it reaches the
     bitwise table not at all. The `.powdr_opt` dump the benchmark ships is the pre-gate stage, the
-    analogue of `Keccak2105000`'s `opt`. See `Audit/RealApcLegality.lean`. -/
+    analogue of `Keccak2105000`'s `opt`. See `Audit/Legality/All.lean`. -/
 
 namespace ApcOptimizer.OpenVM.LoadBranch
 

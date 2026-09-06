@@ -104,7 +104,7 @@ theorem badChip_msg_eq (asg : ChipAssignment babyBear)
 
 /-- **`badChip` lays out as one instruction step.** -/
 def badChipLayout (P : OpenVmParams babyBear) (asg : ChipAssignment babyBear) :
-    StepLayoutOF badChip rr asg openVmMemAddress P.maxWindow openVmTimestampBound where
+    StepLayout badChip rr asg openVmMemAddress P.maxWindow openVmTimestampBound where
   pcFrom := 0
   pcTo := 1
   tStart := 1
@@ -327,11 +327,11 @@ theorem theAsg_balances (P : OpenVmParams babyBear) (m : BusMessage babyBear) :
     simp [Fin.sum_univ_eight]
   rw [VmAssignment.busEffect, hg, hh, host_eff m, add_neg_cancel]
 
-/-- **`memoryInitHostChipOF` closes `badChip`.** Its run needed the initial image to hold two
+/-- **`memoryInitHostChip` closes `badChip`.** Its run needed the initial image to hold two
     different records for cell `(2,7)`; §4.6.2's correspondence with a single initial memory state
     forbids that. -/
 theorem initEffect_not_producible :
-    ¬ (memoryInitHostChipOF (p := babyBear)).canProduce initEffect := by
+    ¬ (memoryInitHostChip (p := babyBear)).canProduce initEffect := by
   rintro ⟨-, hinj, -⟩
   exact absurd (hinj k2 k4 (by decide) (by decide) (by decide) (by decide)) (by decide)
 
@@ -420,7 +420,7 @@ theorem badChip2_msg_eq (asg : ChipAssignment babyBear)
     badChip2.msgAt asg i = badChip2.msgAt asg0 i := by fin_cases i <;> rfl
 
 def badChip2Layout (P : OpenVmParams babyBear) (asg : ChipAssignment babyBear) :
-    StepLayoutOF badChip2 rr asg openVmMemAddress P.maxWindow openVmTimestampBound where
+    StepLayout badChip2 rr asg openVmMemAddress P.maxWindow openVmTimestampBound where
   pcFrom := 0
   pcTo := 1
   tStart := 1
@@ -527,7 +527,7 @@ theorem fC_bytes : ∀ d ∈ fC.data, isByte d := by
   rcases hd with rfl | rfl <;> · simp only [isByte]; decide
 
 theorem initEffect2_canProduce :
-    (memoryInitHostChipOF (p := babyBear)).canProduce initEffect2 := by
+    (memoryInitHostChip (p := babyBear)).canProduce initEffect2 := by
   refine ⟨?_, fun m m' h h' _ _ => initEffect2_functional m m' h h', ?_⟩
   case refine_2 =>
     intro m hm h1
@@ -596,7 +596,7 @@ theorem theAsg2_satisfiesHost (P : OpenVmParams babyBear) :
   withinBound := by
     intro t
     fin_cases t <;>
-      simp [theAsg2, theVm2, openVmHost, memoryInitHostChipOF, memoryFinalizeHostChip,
+      simp [theAsg2, theVm2, openVmHost, memoryInitHostChip, memoryFinalizeHostChip,
         connectorHostChip, singletonWitnessChip]
 
 theorem theAsg2_vmSat (P : OpenVmParams babyBear) (hN : 1 ≤ P.maxInstances) :
@@ -1024,7 +1024,7 @@ theorem theAsg3_vmSat (P : OpenVmParams babyBear) (hN : 2 ≤ P.maxInstances) :
 
 /-! `not_forcesAdmissibleOF'` stood here: the two-chip run above refuted `forcesAdmissible` under
     the order-free rely with distinct send times and no initial image at all. It is retracted —
-    `chipA_not_legalGuest`/`chipB_not_legalGuest` show `legalGuestOF`'s pairing clause rules both
+    `chipA_not_legalGuest`/`chipB_not_legalGuest` show `legalGuest`'s pairing clause rules both
     chips out, so the run is no longer a run of legal guests. -/
 
 end ApcOptimizer.OpenVM.AdmissibleGap

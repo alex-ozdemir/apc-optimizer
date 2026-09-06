@@ -213,7 +213,8 @@ theorem openVm_negOne_ne_one (P : OpenVmParams p) : (-1 : ZMod p) ≠ 1 := by
     `openVm_negOne_ne_one`'s `h2` below — it is not part of what `Circuit.legalGuest` means, only
     a convenience for restating `StepLayout.net` as one equation. -/
 def _root_.StepLayout.effect {c : Circuit p} {r : GuestBusRules p} {asg : ChipAssignment p}
-    {maxWindow maxLookback : ℕ} (L : StepLayout c r asg maxWindow maxLookback)
+    {memAddress : BusMessage p → List (Option (ZMod p))} {maxWindow maxLookback : ℕ}
+    (L : StepLayout c r asg memAddress maxWindow maxLookback)
     (m : BusMessage p) : ZMod p :=
   (if (r.execBusId, [L.pcTo, L.tStart + (L.tWindow : ZMod p)]) = m then (1 : ZMod p) else 0)
     - (if (r.execBusId, [L.pcFrom, L.tStart]) = m then (1 : ZMod p) else 0)
@@ -221,7 +222,8 @@ def _root_.StepLayout.effect {c : Circuit p} {r : GuestBusRules p} {asg : ChipAs
 /-- A step's two bridge endpoints are distinct: were they equal, `recv` and `send` would make the
     same net both `-1` and `1`. -/
 theorem _root_.StepLayout.endpoints_ne {c : Circuit p} {r : GuestBusRules p} {asg : ChipAssignment p}
-    {maxWindow maxLookback : ℕ} (L : StepLayout c r asg maxWindow maxLookback)
+    {memAddress : BusMessage p → List (Option (ZMod p))} {maxWindow maxLookback : ℕ}
+    (L : StepLayout c r asg memAddress maxWindow maxLookback)
     (h2 : (-1 : ZMod p) ≠ 1) :
     ((r.execBusId, [L.pcFrom, L.tStart]) : BusMessage p)
       ≠ (r.execBusId, [L.pcTo, L.tStart + (L.tWindow : ZMod p)]) := by
@@ -234,7 +236,8 @@ theorem _root_.StepLayout.endpoints_ne {c : Circuit p} {r : GuestBusRules p} {as
     repackaged as a single equation, which is the form the bridge-balance argument below
     consumes. -/
 theorem _root_.StepLayout.net {c : Circuit p} {r : GuestBusRules p} {asg : ChipAssignment p}
-    {maxWindow maxLookback : ℕ} (L : StepLayout c r asg maxWindow maxLookback)
+    {memAddress : BusMessage p → List (Option (ZMod p))} {maxWindow maxLookback : ℕ}
+    (L : StepLayout c r asg memAddress maxWindow maxLookback)
     (h2 : (-1 : ZMod p) ≠ 1) :
     ∀ m : BusMessage p, m.1 = r.execBusId → c.allEffects asg m = L.effect m := by
   intro m hm
@@ -266,7 +269,7 @@ abbrev BridgeArc (gA : GuestAssignment p G) (n : ℕ) : Type :=
 variable (gA : GuestAssignment p G) {n : ℕ}
   (S : ∀ x : ((s : Fin G.length) × Fin (gA s).length),
       StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
-        ((gA x.1).get x.2) maxWindow openVmTimestampBound)
+        ((gA x.1).get x.2) openVmMemAddress maxWindow openVmTimestampBound)
   (iR : Fin n → InputRead p) (ptrReg : Nat)
   (r : ConnectorBoundary p)
 
@@ -613,7 +616,7 @@ theorem rank_of_placed {memBusId : Nat} {m : BusMessage p} {T : ℕ} {off : ℤ}
     guest, and the connector's range-checked final timestamp. -/
 theorem openVmHost_ordersRanks [Fact p.Prime] (P : OpenVmParams p) :
     (openVmHost P).ordersRanks (openVmRankModel openVmMemBusId)
-      (openVmGuestRules defaultBusMap openVmMemBusId) := by
+      (openVmGuestRules defaultBusMap openVmMemBusId) openVmMemAddress := by
   classical
   have hp := P.windowOk
   have hppos : 0 < p := Nat.lt_of_le_of_lt (Nat.zero_le _) hp
@@ -625,14 +628,14 @@ theorem openVmHost_ordersRanks [Fact p.Prime] (P : OpenVmParams p) :
   -- A layout for every instance, this one's being the very one we were handed.
   have hNonempty : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
       Nonempty (StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
-        ((a.guestAssignments x.1).get x.2) P.maxWindow openVmTimestampBound) :=
+        ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound) :=
     fun x => openVmHost_stepLayout_unpack P _ (hGuests _ (List.get_mem G x.1))
       _ (hsat.satisfiesGuest x.1 _ (List.get_mem _ _))
       (satisfiesStateless_of_sinks (openVmHost_legalGuest_unpack P) (openVmHost_sinksAreTables P)
         hGuests hsat x.1 _ (List.get_mem _ _))
   let S : ∀ x : ((s : Fin G.length) × Fin (a.guestAssignments s).length),
       StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
-        ((a.guestAssignments x.1).get x.2) P.maxWindow openVmTimestampBound :=
+        ((a.guestAssignments x.1).get x.2) openVmMemAddress P.maxWindow openVmTimestampBound :=
     fun x => if h : x = ⟨t, jx⟩ then by subst h; exact L else Classical.choice (hNonempty x)
   have hSL : S ⟨t, jx⟩ = L := by simp only [S, dif_pos]
   -- The connector, the input-chip instances' own witnesses, and the bridge's balance equation.

@@ -132,23 +132,4 @@ theorem optWriteOk {asg : ChipAssignment babyBear}
     asg ⟨"a__0_0", some 19⟩, 0, 0, 0, asg ⟨"from_state__timestamp_0", some 1⟩ + 3])
   exact (openVmPayloadOk_mem_iff _ _ _ _ _ _).mpr ⟨ha0, isByte_zero, isByte_zero, isByte_zero⟩
 
-/-- **A real optimized two-instruction block has a step layout.** One arc —
-    `(2100180, t) → (2100188 + 12·cmp, t + 5)` — and the eight stateful interactions placed at
-    `recipes`. -/
-theorem opt_hasStepLayout {maxWindow : ℕ} (hw : 5 < maxWindow) :
-    opt.hasStepLayout apcRules maxWindow openVmTimestampBound :=
-  hasStepLayout_of_checks (by norm_num) hw (fun _ halg => optPinRules_hold _ halg) optBaseLin
-    (fun asg halg => bridgeCheck_sound optBridgeCheck (optPinRules_hold asg halg))
-    optPlaceCheck optOrderCheck optFitsCheck optByteCheck
-    (fun _ halg hacc => optLookbacks halg hacc)
-    (fun _ _ hacc i hwit _ _ => optWriteOk hacc i hwit)
-
-theorem opt_legalGuest {maxWindow maxInteractions : ℕ} (hw : 5 < maxWindow)
-    (hi : 15 ≤ maxInteractions) :
-    opt.legalGuest apcRules maxWindow openVmTimestampBound maxInteractions where
-  sendOnly := opt_legalMultiplicities.1
-  polarity := opt_legalMultiplicities.2
-  stepLayout := opt_hasStepLayout hw
-  size := by simpa [opt] using hi
-
 end ApcOptimizer.OpenVM.AndBranch

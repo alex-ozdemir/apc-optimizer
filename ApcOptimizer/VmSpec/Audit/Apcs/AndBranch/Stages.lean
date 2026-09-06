@@ -8,7 +8,7 @@ set_option maxHeartbeats 1000000
     Two fused instructions: `andi rd, rs, 2` masks the low bits of a register, and the branch that
     follows tests the result against zero. The `.powdr_opt` dump the benchmark ships is the
     pre-gate stage -- multiplicities are literal `±1` -- so this is the analogue of
-    `Keccak2105000`'s `opt`. See `Audit/RealApcLegality.lean`. -/
+    `Keccak2105000`'s `opt`. See `Audit/Legality/All.lean`. -/
 
 namespace ApcOptimizer.OpenVM.AndBranch
 

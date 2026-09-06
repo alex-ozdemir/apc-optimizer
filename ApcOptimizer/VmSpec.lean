@@ -9,13 +9,14 @@ import ApcOptimizer.VmSpec.Implementation.Connection
 import ApcOptimizer.VmSpec.Implementation.OpenVmConnection
 import ApcOptimizer.VmSpec.Implementation.Chain
 import ApcOptimizer.VmSpec.Implementation.OpenVmChain
+import ApcOptimizer.VmSpec.Implementation.FuseLegal
 import ApcOptimizer.VmSpec.Implementation.Validation
 
 -- `VmSpec/Audit/` (see below) is deliberately not imported here: `Audit/Apcs/`
 -- alone takes ~10 minutes to compile, and nothing in this file's own claims depends on it -- see
 -- "files that audit the audit surface" below. Omitting the import keeps `lake build
 -- ApcOptimizer.VmSpec` fast without disabling `Audit/`: build it explicitly, e.g. `lake build
--- ApcOptimizer.VmSpec.Audit.RealApcLegality`.
+-- ApcOptimizer.VmSpec.Audit.Legality.All`.
 
 /-! # The VM-level correctness spec
 
@@ -67,9 +68,9 @@ import ApcOptimizer.VmSpec.Implementation.Validation
     `decide` has Lean's kernel re-derive the proof from the computation rather than trust it. This
     is `SendOnlyPolarity.lean`'s pattern, and every checker below follows it.
 
-    * `Audit/OpenVmLegalAudit.lean` — real OpenVM circuit shapes shown to satisfy the audited
-      hypotheses, so that "too strong and the theorem is vacuous" is a checkable worry rather than a
-      standing one.
+    * `Audit/OpenVmShapes.lean` — what `openVmPayloadOk` says about a record in a byte-checked
+      address space, and the execution-bridge receive/send pair. Shared by the checkers and the gap
+      files below.
     * `Audit/SendOnlyPolarity.lean` — a decidable, syntactic check that a candidate circuit's
       bus-interaction multiplicities satisfy `Circuit.statelessSendOnly`/`Circuit.statefulPolarity`.
       What needs auditing is the *statement* of `checkMultiplicities_sound`/
@@ -92,52 +93,24 @@ import ApcOptimizer.VmSpec.Implementation.Validation
       `gadgetIdentity_sound` (the last is generic linear-identity checking, not OpenVM-specific —
       `Audit/Apcs/Common.lean`'s `lookback_of_gadget` is what ties it to `AssertLtSubAir`); and
       `byteCheck_sendsOk` — not the walk, matching, or arithmetic that produces the `Bool`.
-    * `Audit/Apcs/` — the legality clauses measured against *real* APCs at several stages of
-      powdr's optimizer pipeline, one directory per APC (its `Stages.lean` emitted from the stage
-      dumps by `Scripts/emit-apc-lean.py`, one file of proofs per stage) over the shared
-      `Apcs/Common.lean`; `Audit/RealApcLegality.lean` imports them all and is the index. Both
-      multiplicity clauses hold at every stage audited. `hasStepLayout` holds of the
-      trivially-simplified stage, proved almost entirely through the checkers above
-      (`opt_hasStepLayout`); it is false of the optimizer's final output, on the all-zero padding
-      row its fresh `is_valid` column makes algebraically satisfying (`gated_not_hasStepLayout`),
-      and — for a *fused* block — false of the unoptimized stage, whose instructions' bridge states
-      do not cancel without powdr's substitution pass. Same block at every stage, so each falsity
-      is a statement about the optimizer, not about the block. Three APCs are carried through all
-      three stages; two more (`AndBranch`, `LoadBranch`) come from the shipped benchmark corpus,
-      which dumps only the pre-gate stage, and are audited there.
-    * `Audit/OF/` — the same corpus measured against `Circuit.legalGuestOF`, the order-free
-      strengthening VM-level completeness needs. `OF/Check.lean` is a decidable checker for its
-      memory-access clauses in the idiom of `Audit/PlaceCheck.lean`, and `OF/All.lean` is the
-      index: every APC passes, each by a single kernel `decide` over a pairing list. Three of the
-      clauses were shaped by what the corpus refuted — see that file.
+    * `Audit/Apcs/` — the real APCs themselves, one directory per APC: `Stages.lean` (emitted
+      from powdr's stage dumps by `Scripts/emit-apc-lean.py`) carries the circuits, `Layout.lean`
+      the pin rules and byte witnesses, and `Opt.lean` the checker results for the stage powdr
+      emits, over the shared `Apcs/Common.lean`.
+    * `Audit/Legality/` — that corpus measured against `Circuit.legalGuest`. `Check.lean` is a
+      decidable checker for the memory-access clauses, in the idiom of `Audit/PlaceCheck.lean`;
+      `All.lean` is the index. Every APC passes, each by a single kernel `decide` over a pairing
+      list, and three of the clauses were shaped by what the corpus refuted — see that file.
     * `Audit/AdmissibleGap.lean`, `Audit/BridgeOffsetGap.lean`, `Audit/InputTimeGap.lean` — the
       audit-surface gaps the VM-level completeness argument has turned up, each with the chip or
       witness that exhibits it and the clause that closes it. `AdmissibleGap`: an ordinary write
       listed send-first, and an initial image holding two records for one cell — closed by the
-      order-free rely and `memoryInitHostChipOF`'s injectivity. `BridgeOffsetGap`: a cancelling
+      order-free rely and `memoryInitHostChip`'s injectivity. `BridgeOffsetGap`: a cancelling
       pair of bridge messages at a wrapped timestamp, satisfying the original `StepLayout` in
-      full — closed by `StepLayoutOF.negOffsetOnlyMemRecv`. `InputTimeGap`: `InputRead` never
+      full — closed by `StepLayout.negOffsetOnlyMemRecv`. `InputTimeGap`: `InputRead` never
       stated §4.6.1's `t_prev < t` for its own two memory accesses, so a `HINT_STOREW` could read
       back a record set after its own write — closed by `InputRead.ptrOffsetOk`/`wordOffsetOk`,
       whose audit that file is. Each records the run or chip that would otherwise slip through.
-    * `Audit/SoundnessGivesLegality.lean` — how much of `Circuit.legalGuest` a chip-level soundness
-      proof already gives for free, and where the residue is real: legality of the optimizer's
-      output cannot be derived from soundness alone (a per-chip `Circuit.isSoundReplacementOf`
-      admits assignments violating `Circuit.statelessSendOnly` outright, so it has to be assumed
-      or separately established, as `openVm_vmSoundReplacement` already does). OpenVM's own
-      `maintainsInvariants` (`OpenVmSemantics.lean`) transports the three bus-shape clauses of
-      `Circuit.legalGuest` on *accepted* assignments (`Circuit.legalOnAccepted`,
-      `legalOnAccepted_of_isSoundReplacementOf`); `legalOnAccepted_not_statelessSendOnly` and
-      `openVm_sound_but_illegal` show the gap between that and full legality is real under the
-      *actual* semantics. `StepLayout` has no counterpart in `Spec.lean` at all, so none of it
-      transports.
-
-    ### Not audited — the argument
-
-    Everything under `VmSpec/Implementation/`. These files are load-bearing for the *proof* and
-    invisible in every statement, so a mistake in them cannot make a theorem mean the wrong thing —
-    it can only make the build fail.
-
     * `Implementation/Rank.lean` — `RankModel`, the ordering the balancing induction descends on.
       Deliberately *not* a field of `Host`: see that file for why a wrong choice cannot make the
       theorem unsound.
@@ -164,5 +137,9 @@ import ApcOptimizer.VmSpec.Implementation.Validation
     * `Implementation/MemChain.lean` — send- and receive-uniqueness for a whole run, the
       per-address counting that bounds the records entering one instance, and
       `openVmHost_forcesAdmissible`: the completeness theorem's last assumption, discharged.
+    * `Implementation/Fusion.lean`, `Implementation/FuseLegal.lean` — fusing two instruction chips
+      into one. `Fusion.lean` has the VM-level equivalence between the fused chip and its
+      ingredients (`vmEquivalent_fuse_cons`, given budget to unfuse); `FuseLegal.lean` has
+      `Circuit.legalGuest_fuse`, that legality survives fusion.
     * `Implementation/Validation.lean` — sanity lemmas about the spec (that the guest list behaves
       as a set, that `VmSoundReplacement` is a preorder). -/

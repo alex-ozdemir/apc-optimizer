@@ -118,24 +118,4 @@ theorem optLookbacks {asg : ChipAssignment babyBear}
       (acceptsAt hacc 18 (by decide) _ rfl rfl (show (1 : ZMod babyBear) ≠ 0 by decide))
   all_goals simp [recipes] at hrc
 
-/-- **A real optimized load-and-branch block has a step layout.** One arc —
-    `(3739668, t) → (3739676 - 56·cmp, t + 5)` — and the ten stateful interactions placed at
-    `recipes`. Every send echoes a receive, so `hasStepLayout_of_checks` is left with only the four
-    gadget facts. -/
-theorem opt_hasStepLayout {maxWindow : ℕ} (hw : 5 < maxWindow) :
-    opt.hasStepLayout apcRules maxWindow openVmTimestampBound :=
-  hasStepLayout_of_checks (by norm_num) hw (fun _ halg => optPinRules_hold _ halg) optBaseLin
-    (fun asg halg => bridgeCheck_sound optBridgeCheck (optPinRules_hold asg halg))
-    optPlaceCheck optOrderCheck optFitsCheck optByteCheck
-    (fun _ halg hacc => optLookbacks halg hacc)
-    (fun _ _ _ i hi _ _ => by fin_cases i <;> exact absurd hi (by decide))
-
-theorem opt_legalGuest {maxWindow maxInteractions : ℕ} (hw : 5 < maxWindow)
-    (hi : 20 ≤ maxInteractions) :
-    opt.legalGuest apcRules maxWindow openVmTimestampBound maxInteractions where
-  sendOnly := opt_legalMultiplicities.1
-  polarity := opt_legalMultiplicities.2
-  stepLayout := opt_hasStepLayout hw
-  size := by simpa [opt] using hi
-
 end ApcOptimizer.OpenVM.LoadBranch

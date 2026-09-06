@@ -2,7 +2,7 @@ import ApcOptimizer.VmSpec.Audit.SendOnlyPolarity
 import ApcOptimizer.VmSpec.Audit.BridgeCheck
 import ApcOptimizer.VmSpec.Audit.PlaceCheck
 import ApcOptimizer.VmSpec.Audit.ByteCheck
-import ApcOptimizer.VmSpec.Audit.OpenVmLegalAudit
+import ApcOptimizer.VmSpec.Audit.OpenVmShapes
 import Mathlib.Tactic.LinearCombination
 import Mathlib.Tactic.NormNum
 import Mathlib.Tactic.NormNum.Prime
@@ -22,7 +22,7 @@ set_option maxRecDepth 8000
 
     One directory per APC sits alongside: `Stages.lean` defines the circuit at each point of
     powdr's pipeline, and one file per stage carries that stage's proofs. See
-    `Audit/RealApcLegality.lean` for the results and what they say. -/
+    `Audit/Legality/All.lean` for the results and what they say. -/
 
 namespace ApcOptimizer.OpenVM
 
@@ -307,12 +307,12 @@ theorem busId_get_eq {c : Circuit babyBear} {ids : List Nat}
     List.getElem?_eq_getElem i.isLt]
   rfl
 
-/-- `hasStepLayout_of_checks` with the memory-access discipline of `Circuit.legalGuestOF`
-    (`VmSpec/LegalOF.lean`). Same checks and the same layout — `tOffset` is still the recipes'
+/-- `hasStepLayout_of_checks` with the memory-access discipline of `Circuit.legalGuest`
+    (`VmSpec/Legal.lean`). Same checks and the same layout — `tOffset` is still the recipes'
     `place` — plus the six clauses a concrete APC discharges off its recipe list and payloads:
     `partner` names the other half of each memory access (§4.6.1), and the last two say its memory
     sends carry distinct ticks inside `[0, d)`. -/
-theorem hasStepLayoutOF_of_checks {c : Circuit babyBear}
+theorem hasStepLayout_of_checks {c : Circuit babyBear}
     {vs vsB : List Variable} {rules : List (PinRule babyBear)}
     {baseE pcFromE pcToE : Expression babyBear} {baseF : LinForm babyBear}
     {R : List (Recipe babyBear)} {W : List ByteWitness}
@@ -376,7 +376,7 @@ theorem hasStepLayoutOF_of_checks {c : Circuit babyBear}
       c.memSend apcRules asg i →
         0 ≤ (R.getD i.val (.fixed 0)).place asg ∧
           (R.getD i.val (.fixed 0)).place asg < (d : ℤ)) :
-    c.hasStepLayoutOF apcRules openVmMemAddress maxWindow openVmTimestampBound := by
+    c.hasStepLayout apcRules openVmMemAddress maxWindow openVmTimestampBound := by
   haveI : Fact (1 < babyBear) := ⟨by decide⟩
   intro asg halg hacc
   have hr := hrules asg halg

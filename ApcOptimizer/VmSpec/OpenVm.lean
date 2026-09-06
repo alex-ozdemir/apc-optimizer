@@ -1,5 +1,5 @@
 import ApcOptimizer.VmSpec.Legal
-import ApcOptimizer.VmSpec.LegalOF
+import ApcOptimizer.VmSpec.Legal
 import ApcOptimizer.OpenVmSemantics
 
 set_option autoImplicit false
@@ -92,32 +92,7 @@ def tupleRangeCheckerHostChip (busId : Nat := 7) (size1 : Nat := 256) (size2 : N
     | [x, y] => x.val < size1 ∧ y.val < size2
     | _ => False
 
-/-- The memory-initialization host chip (default bus `1`): OpenVM's memory boundary chip on its
-    send side (whitepaper §4.6.2: it "adds messages to the send multiset at timestamp `0`" that
-    "must correspond to the initial memory state"). Persistent mode commits that state as a Merkle
-    root (unmodeled — a cross-segment fact, §5.2); volatile mode is all `0`. The AIR only
-    byte-constrains persistent-mode data indirectly, through the cross-segment structure, but this
-    models it as byte-constrained either way.
-
-    Scoped to registers (`1`), main memory (`2`), and address space `3` — the same three
-    `memoryFinalizeHostChip` covers — the full set of address spaces this host models.
-
-    `isIo`: this chip's instances *are* (half of) the VM's externally observable effect — the
-    initial memory image, every address space alike, address space `3` included. There is no
-    dedicated output chip and no special-casing of address space `3` here; a sound/complete
-    replacement must reproduce this chip's net bus contribution exactly, same as any other IO
-    chip's. -/
-def memoryInitHostChip (memBusId : Nat := openVmMemBusId) : HostChip p where
-  canProduce contribution :=
-    ∀ message : BusMessage p, contribution message ≠ 0 →
-      message.1 = memBusId ∧ contribution message = 1 ∧
-      ∃ f : MemoryPayload p, memoryPayload? message.2 = some f ∧
-        (∀ d ∈ f.data, isByte d) ∧ message.2[6]? = some 0 ∧
-        (f.addressSpace.val = 1 ∨ f.addressSpace.val = 2 ∨ f.addressSpace.val = 3)
-  instanceBound := 1
-  isIo := true
-
-/-- **`memoryInitHostChip` with the initial image required to be a *function* of the address.**
+/-- **The initial memory image, required to be a *function* of the address.**
 
     Whitepaper §4.6.2: the boundary chip "add[s] messages to the send multiset at timestamp 0",
     and "the messages at timestamp 0 … must correspond to the initial memory state"; it "exposes a
@@ -132,7 +107,7 @@ def memoryInitHostChip (memBusId : Nat := openVmMemBusId) : HostChip p where
 
     The Merkle root itself stays unmodeled (a cross-segment fact, §5.2); this asks only for the
     consequence a single segment's admissibility needs. -/
-def memoryInitHostChipOF (memBusId : Nat := openVmMemBusId) : HostChip p where
+def memoryInitHostChip (memBusId : Nat := openVmMemBusId) : HostChip p where
   canProduce contribution :=
     (∀ message : BusMessage p, contribution message ≠ 0 →
       message.1 = memBusId ∧ contribution message = 1 ∧
@@ -144,7 +119,7 @@ def memoryInitHostChipOF (memBusId : Nat := openVmMemBusId) : HostChip p where
     -- The initial memory state has `x0 = 0`: RISC-V's hardwired zero register. Without this the
     -- image may seed `(1,0)` with a nonzero word, and `x0ReturnsZero` is then false of any chip
     -- that *reads* `x0` — which `Audit/Apcs/AndBranch` and `Keccak2105000` both do. A chip can
-    -- only constrain what it writes (`Circuit.legalGuestOF`'s `x0Zero`), so the read side has to
+    -- only constrain what it writes (`Circuit.legalGuest`'s `x0Zero`), so the read side has to
     -- come from here.
     ∧ (∀ m : BusMessage p, contribution m ≠ 0 → m.2[0]? = some 1 → m.2[1]? = some 0 →
         m.2[2]? = some 0 ∧ m.2[3]? = some 0 ∧ m.2[4]? = some 0 ∧ m.2[5]? = some 0)
@@ -255,7 +230,7 @@ structure InputRead (p : ℕ) where
       Without it a `HINT_STOREW` may claim to read a record set *after* its own write, and
       `Host.forcesAdmissible` is then false rather than merely unproven.
       `Audit/InputTimeGap.lean` audits this clause and carries the balancing run it excludes, in
-      which one instance satisfying every clause of `Circuit.legalGuestOF` takes in two records at
+      which one instance satisfying every clause of `Circuit.legalGuest` takes in two records at
       a single address; `Implementation/Forces.lean` has the counting argument that breaks without
       it. -/
   ptrOffset : ℤ
@@ -393,7 +368,7 @@ def openVmMemTimestamp (m : BusMessage p) : ZMod p := m.2[6]?.getD 0
 
 /-- The access key an OpenVM memory message carries: `(address space, pointer)`, payload slots `0`
     and `1` — `MemoryBusShape.address` at the memory shape, as a `GuestBusRules`-level function.
-    This is `Circuit.legalGuestOF`'s `memAddress`. -/
+    This is `Circuit.legalGuest`'s `memAddress`. -/
 def openVmMemAddress (m : BusMessage p) : List (Option (ZMod p)) := [m.2[0]?, m.2[1]?]
 
 /-- OpenVM's rules for how guests use buses. Copies `OpenVmSemantics.lean`'s existing `accepts`
@@ -531,11 +506,11 @@ noncomputable def openVmHost (P : OpenVmParams p) : Host p where
   maxLookback := openVmTimestampBound
   maxInteractions := P.maxInteractions
   legalGuest c :=
-    c.legalGuestOF (openVmGuestRules defaultBusMap openVmMemBusId) openVmMemAddress P.maxWindow
+    c.legalGuest (openVmGuestRules defaultBusMap openVmMemBusId) openVmMemAddress P.maxWindow
       openVmTimestampBound P.maxInteractions
   chips :=
     [ pcLookupHostChip, bitwiseLookupHostChip, variableRangeCheckerHostChip,
-      tupleRangeCheckerHostChip, memoryInitHostChipOF,
+      tupleRangeCheckerHostChip, memoryInitHostChip,
       memoryFinalizeHostChip,
       inputHostChip P.ptrReg P.maxInputInstances, connectorHostChip ]
   noTimeOverflow := lt_of_le_of_lt

@@ -1,5 +1,5 @@
 import ApcOptimizer.VmSpec.OpenVm
-import ApcOptimizer.VmSpec.LegalOF
+import ApcOptimizer.VmSpec.Legal
 
 set_option autoImplicit false
 
@@ -7,7 +7,7 @@ set_option autoImplicit false
 
     §4.6.1 says a memory access "adds a message `(addr_space, ptr, ·, t_prev)` to the receive set
     and a message `(addr_space, ptr, ·, t)` to the send set", with the AIR constraining
-    `t_prev < t`. `StepLayoutOF.memPartner_time` states that for a guest chip.
+    `t_prev < t`. `StepLayout.memPartner_time` states that for a guest chip.
 
     `InputRead` — the host's `HINT_STOREW` witness — makes exactly two memory accesses, writing
     the peeked register back at `base + 1` and the hinted word at `base + 2`
@@ -37,7 +37,7 @@ set_option autoImplicit false
     | memory finalization | — | `t = 8` | — |
 
     Every record at `(1,5)` is sent once and received once, and `G` satisfies every clause of
-    `Circuit.legalGuestOF`: its sends sit at offsets `1` and `2`, distinct and inside `[0, 10)`;
+    `Circuit.legalGuest`: its sends sit at offsets `1` and `2`, distinct and inside `[0, 10)`;
     its receives sit at offsets `-5` and `-2`, each before its own partner. Yet both of `G`'s
     receives reach back before its window, so `card (excessAt …) = 2`. The one illegal step in the
     whole run is `I₂` reading a record set at `t = 17` and writing at `t = 5` — `ptrOffset = 13`,

@@ -4,7 +4,7 @@ set_option autoImplicit false
 
 /-! # Window disjointness
 
-    The combinatorial ingredient `Host.forcesAdmissible` (see `VmSpec/LegalOF.lean` for the rest of
+    The combinatorial ingredient `Host.forcesAdmissible` (see `VmSpec/Legal.lean` for the rest of
     the plan). `Chain.arc_position` places each arc *somewhere* on the run's clock; nothing yet
     says two arcs cannot claim the same stretch. Every remaining completeness obligation needs
     that they cannot.
@@ -389,7 +389,7 @@ variable {p : ℕ} {G : Guest p} {maxWindow : ℕ}
 variable (gA : GuestAssignment p G) {n : ℕ}
   (S : ∀ x : ((s : Fin G.length) × Fin (gA s).length),
       StepLayout (G.get x.1) (openVmGuestRules defaultBusMap openVmMemBusId)
-        ((gA x.1).get x.2) maxWindow openVmTimestampBound)
+        ((gA x.1).get x.2) openVmMemAddress maxWindow openVmTimestampBound)
   (iR : Fin n → InputRead p) (ptrReg : Nat)
   (r : ConnectorBoundary p)
 
@@ -401,9 +401,9 @@ variable (gA : GuestAssignment p G) {n : ℕ}
     connector's range-checked final timestamp, and no two half-open windows
     `[1 + T e, 1 + T e + adv e)` overlap.
 
-    This is the form the memory argument consumes. Together with `legalGuestOF`'s `sendInWindow`
+    This is the form the memory argument consumes. Together with `legalGuest`'s `sendInWindow`
     — a memory send sits at an offset in `[0, tWindow)` — it gives that no two memory sends in a
-    run share a timestamp, which with `sendTimesDistinct` (per address) and `memoryInitHostChipOF`
+    run share a timestamp, which with `sendTimesDistinct` (per address) and `memoryInitHostChip`
     is send-uniqueness at `(address, timestamp)`: the invariant every remaining conjunct of
     `Host.forcesAdmissible` rests on. -/
 theorem bridge_windows_disjoint_arc {maxInstances maxInputInstances : ℕ}

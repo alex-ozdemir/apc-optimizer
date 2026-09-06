@@ -1,5 +1,5 @@
 import ApcOptimizer.VmSpec.Audit.PlaceCheck
-import ApcOptimizer.VmSpec.Audit.OpenVmLegalAudit
+import ApcOptimizer.VmSpec.Audit.OpenVmShapes
 
 set_option autoImplicit false
 

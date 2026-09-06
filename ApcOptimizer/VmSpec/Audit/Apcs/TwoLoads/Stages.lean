@@ -11,7 +11,7 @@ set_option maxHeartbeats 1000000
 
     Why this APC is audited: its two main-memory accesses sit at *independently computed* pointers,
     so they may alias. It is the smallest circuit in the shipped corpus with that shape. See
-    `Audit/RealApcLegality.lean` for what that costs. -/
+    `Audit/Legality/All.lean` for what that costs. -/
 
 namespace ApcOptimizer.OpenVM.TwoLoads
 

@@ -12,7 +12,7 @@ set_option maxHeartbeats 1000000
 
     `unopt`, `opt` and `gated` are emitted verbatim from the stage dumps by
     `Scripts/emit-apc-lean.py`; `gatedPinned` is the modification the proofs need. One file per
-    stage carries its proofs -- see `Audit/RealApcLegality.lean`. -/
+    stage carries its proofs -- see `Audit/Legality/All.lean`. -/
 
 namespace ApcOptimizer.OpenVM.SingleXor
 

@@ -4,16 +4,16 @@ set_option autoImplicit false
 
 /-! # A decidable check for the order-free legality clauses
 
-    `Audit/Apcs/Common.lean`'s `hasStepLayoutOF_of_checks` reduces `Circuit.hasStepLayoutOF` to
+    `Audit/Apcs/Common.lean`'s `hasStepLayout_of_checks` reduces `Circuit.hasStepLayout` to
     seven per-interaction facts. Discharging them by case-splitting on the interaction index works
     for a ten-interaction APC and no further: `fin_cases` over a twenty- or thirty-interaction
     circuit re-`whnf`s the whole of `opt` once per case, and `opt` is a very large term.
 
     This file replaces the case split with the repository's own idiom — the one
     `Audit/PlaceCheck.lean`'s `placeCheckAll` and `Audit/ByteCheck.lean`'s `byteCheckAll` already
-    use. `ofCheckAll` is a `Bool` computed from the interaction list, the recipe list and a
-    *pairing list* `prt`, and `hasStepLayoutOF_of_ofCheck` turns one `ofCheckAll … = true` — settled
-    by a single kernel `decide` — into all of `Circuit.hasStepLayoutOF`.
+    use. `legalityCheckAll` is a `Bool` computed from the interaction list, the recipe list and a
+    *pairing list* `prt`, and `hasStepLayout_of_legalityCheck` turns one `legalityCheckAll … = true` — settled
+    by a single kernel `decide` — into all of `Circuit.hasStepLayout`.
 
     What the check reads, and what each clause needs of it:
 
@@ -32,7 +32,7 @@ set_option autoImplicit false
     conservative in the right direction — a real send is never mistaken for a receive — and it is
     what lets a single `decide` cover a circuit the elaborator cannot case-split. -/
 
-namespace ApcOptimizer.OpenVM.OFCheck
+namespace ApcOptimizer.OpenVM.LegalityCheck
 
 open ApcOptimizer.OpenVM
 
@@ -293,19 +293,19 @@ theorem oppMult_sound {rules : List (PinRule babyBear)} {asg : ChipAssignment ba
 --------- The check ---------
 
 /-- **(2b)** A stateful interaction either reaches forward, or is a memory `getPrevious`. -/
-def ofNegOk (rules : List (PinRule babyBear)) (memBusId maxLookback : ℕ)
+def negOffsetOk (rules : List (PinRule babyBear)) (memBusId maxLookback : ℕ)
     (bi : BusInteraction (Expression babyBear)) (rc : Recipe babyBear) : Bool :=
   !(apcRules.isStateful bi.busId) || decide (0 ≤ rc.lb maxLookback)
     || ((bi.busId == memBusId) && multIs rules bi (-1))
 
 /-- **(2)** A possible memory send commits at a fixed tick inside `[0, d)`. -/
-def ofWindowOk (rules : List (PinRule babyBear)) (memBusId d : ℕ)
+def windowOk (rules : List (PinRule babyBear)) (memBusId d : ℕ)
     (bi : BusInteraction (Expression babyBear)) (rc : Recipe babyBear) : Bool :=
   !(maybeSend rules memBusId bi) || (Recipe.isFixed rc && decide (0 ≤ rc.ub ∧ rc.ub < (d : ℤ)))
 
 /-- **(3)** The pairing: a fixed-point-free involution on the memory bus, with opposite
     multiplicities, one cell, and the `getPrevious` strictly earlier. -/
-def ofPairOk (vs : List Variable) (rules : List (PinRule babyBear)) (memBusId maxLookback : ℕ)
+def partnerOk (vs : List Variable) (rules : List (PinRule babyBear)) (memBusId maxLookback : ℕ)
     (len i q qq : ℕ) (bi bq : BusInteraction (Expression babyBear))
     (rc rq : Recipe babyBear) : Bool :=
   (bi.busId != memBusId)
@@ -315,27 +315,27 @@ def ofPairOk (vs : List Variable) (rules : List (PinRule babyBear)) (memBusId ma
         && (!(multIs rules bi (-1)) || Recipe.below maxLookback rc rq))
 
 /-- A possible memory send respects `x0`. -/
-def ofX0Ok (rules : List (PinRule babyBear)) (memBusId : ℕ)
+def x0ZeroOk (rules : List (PinRule babyBear)) (memBusId : ℕ)
     (bi : BusInteraction (Expression babyBear)) : Bool :=
   !(maybeSend rules memBusId bi) || x0Ok rules bi
 
 /-- The per-interaction check, with everything it reads passed in by value. -/
-def ofCheckAt (vs : List Variable) (rules : List (PinRule babyBear)) (memBusId maxLookback d : ℕ)
+def legalityCheckAt (vs : List Variable) (rules : List (PinRule babyBear)) (memBusId maxLookback d : ℕ)
     (len i q qq : ℕ) (bi bq : BusInteraction (Expression babyBear))
     (rc rq : Recipe babyBear) : Bool :=
-  ofNegOk rules memBusId maxLookback bi rc && ofWindowOk rules memBusId d bi rc
-    && ofPairOk vs rules memBusId maxLookback len i q qq bi bq rc rq
-    && ofX0Ok rules memBusId bi
+  negOffsetOk rules memBusId maxLookback bi rc && windowOk rules memBusId d bi rc
+    && partnerOk vs rules memBusId maxLookback len i q qq bi bq rc rq
+    && x0ZeroOk rules memBusId bi
 
-def ofCheckOne (vs : List Variable) (rules : List (PinRule babyBear))
+def legalityCheckOne (vs : List Variable) (rules : List (PinRule babyBear))
     (memBusId maxLookback d : ℕ) (L : List (BusInteraction (Expression babyBear)))
     (R : List (Recipe babyBear)) (prt : List ℕ) (i : ℕ) : Bool :=
-  ofCheckAt vs rules memBusId maxLookback d L.length i (prt.getD i 0)
+  legalityCheckAt vs rules memBusId maxLookback d L.length i (prt.getD i 0)
     (prt.getD (prt.getD i 0) 0) (L.getD i dfltBi) (L.getD (prt.getD i 0) dfltBi)
     (R.getD i (.fixed 0)) (R.getD (prt.getD i 0) (.fixed 0))
 
 /-- Two possible memory sends carry distinct ticks, or provably distinct addresses. -/
-def ofCheckPair (rules : List (PinRule babyBear)) (memBusId : ℕ)
+def legalityCheckPair (rules : List (PinRule babyBear)) (memBusId : ℕ)
     (L : List (BusInteraction (Expression babyBear))) (R : List (Recipe babyBear))
     (i j : ℕ) : Bool :=
   !(maybeSend rules memBusId (L.getD i dfltBi)) || !(maybeSend rules memBusId (L.getD j dfltBi))
@@ -343,67 +343,67 @@ def ofCheckPair (rules : List (PinRule babyBear)) (memBusId : ℕ)
     || diffAddr rules (L.getD i dfltBi) (L.getD j dfltBi)
 
 /-- **The whole order-free discipline, as one `Bool`.** -/
-def ofCheckAll (vs : List Variable) (rules : List (PinRule babyBear))
+def legalityCheckAll (vs : List Variable) (rules : List (PinRule babyBear))
     (memBusId maxLookback d : ℕ) (L : List (BusInteraction (Expression babyBear)))
     (R : List (Recipe babyBear)) (prt : List ℕ) : Bool :=
-  (List.range L.length).all (ofCheckOne vs rules memBusId maxLookback d L R prt)
+  (List.range L.length).all (legalityCheckOne vs rules memBusId maxLookback d L R prt)
     && (List.range L.length).all fun i =>
-        (List.range i).all fun j => ofCheckPair rules memBusId L R j i
+        (List.range i).all fun j => legalityCheckPair rules memBusId L R j i
 
-theorem ofCheckAll_one {vs : List Variable} {rules : List (PinRule babyBear)}
+theorem legalityCheckAll_one {vs : List Variable} {rules : List (PinRule babyBear)}
     {memBusId maxLookback d : ℕ} {L : List (BusInteraction (Expression babyBear))}
     {R : List (Recipe babyBear)} {prt : List ℕ}
-    (h : ofCheckAll vs rules memBusId maxLookback d L R prt = true) (i : Fin L.length) :
-    ofCheckOne vs rules memBusId maxLookback d L R prt i.val = true := by
-  simp only [ofCheckAll, Bool.and_eq_true] at h
+    (h : legalityCheckAll vs rules memBusId maxLookback d L R prt = true) (i : Fin L.length) :
+    legalityCheckOne vs rules memBusId maxLookback d L R prt i.val = true := by
+  simp only [legalityCheckAll, Bool.and_eq_true] at h
   exact List.all_eq_true.mp h.1 i.val (List.mem_range.mpr i.isLt)
 
-theorem ofCheckAll_pair {vs : List Variable} {rules : List (PinRule babyBear)}
+theorem legalityCheckAll_pair {vs : List Variable} {rules : List (PinRule babyBear)}
     {memBusId maxLookback d : ℕ} {L : List (BusInteraction (Expression babyBear))}
     {R : List (Recipe babyBear)} {prt : List ℕ}
-    (h : ofCheckAll vs rules memBusId maxLookback d L R prt = true)
+    (h : legalityCheckAll vs rules memBusId maxLookback d L R prt = true)
     {i : ℕ} (hi : i < L.length) {j : ℕ} (hj : j < i) :
-    ofCheckPair rules memBusId L R j i = true := by
-  simp only [ofCheckAll, Bool.and_eq_true] at h
+    legalityCheckPair rules memBusId L R j i = true := by
+  simp only [legalityCheckAll, Bool.and_eq_true] at h
   exact List.all_eq_true.mp (List.all_eq_true.mp h.2 i (List.mem_range.mpr hi)) j
     (List.mem_range.mpr hj)
 
 --------- Soundness, one clause at a time ---------
 
-theorem ofNegOk_sound {rules : List (PinRule babyBear)} {asg : ChipAssignment babyBear}
+theorem negOffsetOk_sound {rules : List (PinRule babyBear)} {asg : ChipAssignment babyBear}
     (hrules : ∀ q ∈ rules, q.1.eval asg = q.2) {memBusId maxLookback : ℕ}
     {bi : BusInteraction (Expression babyBear)} {rc : Recipe babyBear}
-    (h : ofNegOk rules memBusId maxLookback bi rc = true)
+    (h : negOffsetOk rules memBusId maxLookback bi rc = true)
     (hst : apcRules.isStateful bi.busId = true) (hback : rc.back asg < maxLookback)
     (hlt : rc.place asg < 0) : bi.busId = memBusId ∧ (bi.eval asg).multiplicity = -1 := by
-  simp only [ofNegOk, Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true, beq_iff_eq,
+  simp only [negOffsetOk, Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true, beq_iff_eq,
     decide_eq_true_eq] at h
   rcases h with (h | h) | ⟨hb, hm⟩
   · exact absurd hst (by rw [h]; simp)
   · exact absurd hlt (by have := (Recipe.place_mem rc hback).1; omega)
   · exact ⟨hb, multIs_sound hrules hm⟩
 
-theorem ofWindowOk_sound {rules : List (PinRule babyBear)} {memBusId d : ℕ}
+theorem windowOk_sound {rules : List (PinRule babyBear)} {memBusId d : ℕ}
     {bi : BusInteraction (Expression babyBear)} {rc : Recipe babyBear}
-    (h : ofWindowOk rules memBusId d bi rc = true)
+    (h : windowOk rules memBusId d bi rc = true)
     (hms : maybeSend rules memBusId bi = true) (asg : ChipAssignment babyBear) :
     rc.place asg = rc.ub ∧ 0 ≤ rc.ub ∧ rc.ub < (d : ℤ) := by
-  simp only [ofWindowOk, Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true,
+  simp only [windowOk, Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true,
     decide_eq_true_eq] at h
   rcases h with h | ⟨hfix, hrange⟩
   · exact absurd hms (by rw [h]; simp)
   · exact ⟨Recipe.place_of_isFixed hfix asg, hrange⟩
 
-theorem ofPairOk_sound {vs : List Variable} {rules : List (PinRule babyBear)}
+theorem partnerOk_sound {vs : List Variable} {rules : List (PinRule babyBear)}
     {memBusId maxLookback len i q qq : ℕ} {bi bq : BusInteraction (Expression babyBear)}
     {rc rq : Recipe babyBear}
-    (h : ofPairOk vs rules memBusId maxLookback len i q qq bi bq rc rq = true)
+    (h : partnerOk vs rules memBusId maxLookback len i q qq bi bq rc rq = true)
     (hbus : bi.busId = memBusId) :
     q < len ∧ qq = i ∧ q ≠ i ∧ bq.busId = memBusId
       ∧ (multIs rules bi 1 = true ∨ multIs rules bi (-1) = true)
       ∧ oppMult rules bi bq = true ∧ sameAddr vs rules bi bq = true
       ∧ (multIs rules bi (-1) = true → Recipe.below maxLookback rc rq = true) := by
-  simp only [ofPairOk, Bool.or_eq_true, bne_iff_ne, ne_eq, Bool.and_eq_true, beq_iff_eq,
+  simp only [partnerOk, Bool.or_eq_true, bne_iff_ne, ne_eq, Bool.and_eq_true, beq_iff_eq,
     decide_eq_true_eq, Bool.not_eq_true'] at h
   rcases h with h | ⟨⟨⟨⟨⟨⟨⟨hq, hqq⟩, hqi⟩, hbq⟩, hpol⟩, hopp⟩, hsame⟩, hbel⟩
   · exact absurd hbus h
@@ -412,20 +412,20 @@ theorem ofPairOk_sound {vs : List Variable} {rules : List (PinRule babyBear)}
     · exact absurd hneg (by rw [hb]; simp)
     · exact hb
 
-theorem ofX0Ok_sound {rules : List (PinRule babyBear)} {memBusId : ℕ}
-    {bi : BusInteraction (Expression babyBear)} (h : ofX0Ok rules memBusId bi = true)
+theorem x0ZeroOk_sound {rules : List (PinRule babyBear)} {memBusId : ℕ}
+    {bi : BusInteraction (Expression babyBear)} (h : x0ZeroOk rules memBusId bi = true)
     (hms : maybeSend rules memBusId bi = true) : x0Ok rules bi = true := by
-  simp only [ofX0Ok, Bool.or_eq_true, Bool.not_eq_true'] at h
+  simp only [x0ZeroOk, Bool.or_eq_true, Bool.not_eq_true'] at h
   rcases h with h | h
   · exact absurd hms (by rw [h]; simp)
   · exact h
 
 --------- One `decide` gives the whole layout ---------
 
-/-- **`Circuit.hasStepLayoutOF` from a single `decide`.** Same arguments as
-    `hasStepLayoutOF_of_checks`, with its six per-interaction clauses replaced by a pairing list
-    `prt` and one `ofCheckAll … = true`. -/
-theorem hasStepLayoutOF_of_ofCheck {c : Circuit babyBear}
+/-- **`Circuit.hasStepLayout` from a single `decide`.** Same arguments as
+    `hasStepLayout_of_checks`, with its six per-interaction clauses replaced by a pairing list
+    `prt` and one `legalityCheckAll … = true`. -/
+theorem hasStepLayout_of_legalityCheck {c : Circuit babyBear}
     {vs vsB : List Variable} {rules : List (PinRule babyBear)}
     {baseE pcFromE pcToE : Expression babyBear} {baseF : LinForm babyBear}
     {R : List (Recipe babyBear)} {W : List ByteWitness} {prt : List ℕ}
@@ -461,23 +461,23 @@ theorem hasStepLayoutOF_of_ofCheck {c : Circuit babyBear}
         (∀ j : Fin c.busInteractions.length, j < i → c.activeStateful apcRules asg j →
           apcRules.payloadOk (c.msgAt asg j)) →
         apcRules.payloadOk (c.msgAt asg i))
-    (hof : ofCheckAll vs rules openVmMemBusId openVmTimestampBound d c.busInteractions R prt
+    (hof : legalityCheckAll vs rules openVmMemBusId openVmTimestampBound d c.busInteractions R prt
       = true) :
-    c.hasStepLayoutOF apcRules openVmMemAddress maxWindow openVmTimestampBound := by
+    c.hasStepLayout apcRules openVmMemAddress maxWindow openVmTimestampBound := by
   have hne1 : ¬ ((1 : ZMod babyBear) = -1) := by decide
   have hAt : ∀ i : Fin c.busInteractions.length,
-      ofNegOk rules openVmMemBusId openVmTimestampBound (c.busInteractions.get i)
+      negOffsetOk rules openVmMemBusId openVmTimestampBound (c.busInteractions.get i)
           (R.getD i.val (.fixed 0)) = true
-      ∧ ofWindowOk rules openVmMemBusId d (c.busInteractions.get i)
+      ∧ windowOk rules openVmMemBusId d (c.busInteractions.get i)
           (R.getD i.val (.fixed 0)) = true
-      ∧ ofPairOk vs rules openVmMemBusId openVmTimestampBound c.busInteractions.length i.val
+      ∧ partnerOk vs rules openVmMemBusId openVmTimestampBound c.busInteractions.length i.val
           (prt.getD i.val 0) (prt.getD (prt.getD i.val 0) 0) (c.busInteractions.get i)
           (c.busInteractions.getD (prt.getD i.val 0) dfltBi) (R.getD i.val (.fixed 0))
           (R.getD (prt.getD i.val 0) (.fixed 0)) = true
-      ∧ ofX0Ok rules openVmMemBusId (c.busInteractions.get i) = true := by
+      ∧ x0ZeroOk rules openVmMemBusId (c.busInteractions.get i) = true := by
     intro i
-    have h := ofCheckAll_one hof i
-    simp only [ofCheckOne, ofCheckAt, getD_get, Bool.and_eq_true] at h
+    have h := legalityCheckAll_one hof i
+    simp only [legalityCheckOne, legalityCheckAt, getD_get, Bool.and_eq_true] at h
     exact ⟨h.1.1.1, h.1.1.2, h.1.2, h.2⟩
   have hback : ∀ asg : ChipAssignment babyBear, c.satisfiesAlgebraic asg →
       c.satisfiesStateless apcRules asg → ∀ i : Fin c.busInteractions.length,
@@ -499,15 +499,15 @@ theorem hasStepLayoutOF_of_ofCheck {c : Circuit babyBear}
     have hval : ((c.busInteractions.get i).eval asg).multiplicity = -1 :=
       multIs_sound (hrules asg halg) hc
     exact hne1 (hs.1.2.symm.trans hval)
-  refine hasStepLayoutOF_of_checks hd hw hrules hbase hbridge hplace horder hfits hbyte hlook hext
+  refine hasStepLayout_of_checks hd hw hrules hbase hbridge hplace horder hfits hbyte hlook hext
     ?_ (fun i => if h : prt.getD i.val 0 < c.busInteractions.length then ⟨_, h⟩ else i)
     ?_ ?_ ?_ ?_ ?_
   · -- `negOffsetOnlyMemRecv`
     intro asg halg hacc i hact hlt
-    exact ofNegOk_sound (hrules asg halg) (hAt i).1 hact.1 (hback asg halg hacc i) hlt
+    exact negOffsetOk_sound (hrules asg halg) (hAt i).1 hact.1 (hback asg halg hacc i) hlt
   · -- `memPartner_invol`
     intro i hi
-    obtain ⟨hq, hqq, hqi, hbq, -, -, -, -⟩ := ofPairOk_sound (hAt i).2.2.1 hi
+    obtain ⟨hq, hqq, hqi, hbq, -, -, -, -⟩ := partnerOk_sound (hAt i).2.2.1 hi
     dsimp only
     rw [dif_pos hq]
     refine ⟨?_, fun hc => hqi (congrArg Fin.val hc), ?_⟩
@@ -518,7 +518,7 @@ theorem hasStepLayoutOF_of_ofCheck {c : Circuit babyBear}
       exact hbq
   · -- `memPartner_mult`
     intro asg halg hacc i hi
-    obtain ⟨hq, -, -, -, -, hopp, hsame, -⟩ := ofPairOk_sound (hAt i).2.2.1 hi
+    obtain ⟨hq, -, -, -, -, hopp, hsame, -⟩ := partnerOk_sound (hAt i).2.2.1 hi
     dsimp only
     rw [dif_pos hq]
     refine ⟨?_, ?_⟩
@@ -528,7 +528,7 @@ theorem hasStepLayoutOF_of_ofCheck {c : Circuit babyBear}
       exact sameAddr_sound (hrules asg halg) hsame
   · -- `memPartner_time`
     intro asg halg hacc i hi hr
-    obtain ⟨hq, -, -, -, hpol, -, -, hbel⟩ := ofPairOk_sound (hAt i).2.2.1 hi
+    obtain ⟨hq, -, -, -, hpol, -, -, hbel⟩ := partnerOk_sound (hAt i).2.2.1 hi
     have hneg1 : multIs rules (c.busInteractions.get i) (-1) = true := by
       rcases hpol with h1 | h1
       · have hval : ((c.busInteractions.get i).eval asg).multiplicity = 1 :=
@@ -551,14 +551,14 @@ theorem hasStepLayoutOF_of_ofCheck {c : Circuit babyBear}
     by_contra hne
     have hfix : ∀ k : Fin c.busInteractions.length, c.memSend apcRules asg k →
         (R.getD k.val (.fixed 0)).place asg = (R.getD k.val (.fixed 0)).ub :=
-      fun k hk => (ofWindowOk_sound (hAt k).2.1 (hmaybe asg halg k hk) asg).1
+      fun k hk => (windowOk_sound (hAt k).2.1 (hmaybe asg halg k hk) asg).1
     have hpair : ∀ a b : Fin c.busInteractions.length, b.val < a.val →
         c.memSend apcRules asg a → c.memSend apcRules asg b →
         openVmMemAddress (c.msgAt asg a) = openVmMemAddress (c.msgAt asg b) →
         (R.getD a.val (.fixed 0)).place asg = (R.getD b.val (.fixed 0)).place asg → False := by
       intro a b hba ha hb hadr hpl
-      have h := ofCheckAll_pair hof a.isLt hba
-      simp only [ofCheckPair, Bool.or_eq_true, getD_get, decide_eq_true_eq,
+      have h := legalityCheckAll_pair hof a.isLt hba
+      simp only [legalityCheckPair, Bool.or_eq_true, getD_get, decide_eq_true_eq,
         Bool.not_eq_true'] at h
       rcases h with ((h | h) | h) | h
       · exact absurd (hmaybe asg halg b hb) (by rw [h]; simp)
@@ -572,17 +572,17 @@ theorem hasStepLayoutOF_of_ofCheck {c : Circuit babyBear}
     · exact hpair i j (by omega) hsi hsj haddr hplc
   · -- `sendInWindow`
     intro asg halg hacc i hs
-    obtain ⟨hpl, h0, h1⟩ := ofWindowOk_sound (hAt i).2.1 (hmaybe asg halg i hs) asg
+    obtain ⟨hpl, h0, h1⟩ := windowOk_sound (hAt i).2.1 (hmaybe asg halg i hs) asg
     rw [hpl]
     exact ⟨h0, h1⟩
 
 /-- **`x0Zero`, from the same check.** -/
-theorem x0Zero_of_ofCheck {c : Circuit babyBear}
+theorem x0Zero_of_legalityCheck {c : Circuit babyBear}
     {vs : List Variable} {rules : List (PinRule babyBear)} {R : List (Recipe babyBear)}
     {prt : List ℕ} {d : ℕ}
     (hrules : ∀ asg : ChipAssignment babyBear, c.satisfiesAlgebraic asg →
       ∀ q ∈ rules, q.1.eval asg = q.2)
-    (hof : ofCheckAll vs rules openVmMemBusId openVmTimestampBound d c.busInteractions R prt
+    (hof : legalityCheckAll vs rules openVmMemBusId openVmTimestampBound d c.busInteractions R prt
       = true) :
     ∀ asg : ChipAssignment babyBear, c.satisfiesAlgebraic asg →
       c.satisfiesStateless apcRules asg →
@@ -604,9 +604,9 @@ theorem x0Zero_of_ofCheck {c : Circuit babyBear}
       = (c.busInteractions.get i).payload[k]?.map (fun e => e.eval asg) := by
     intro k
     simp [Circuit.msgAt, BusInteraction.eval, List.getElem?_map]
-  have hx := ofX0Ok_sound (by
-    have h := ofCheckAll_one hof i
-    simp only [ofCheckOne, ofCheckAt, getD_get, Bool.and_eq_true] at h
+  have hx := x0ZeroOk_sound (by
+    have h := legalityCheckAll_one hof i
+    simp only [legalityCheckOne, legalityCheckAt, getD_get, Bool.and_eq_true] at h
     exact h.2) hmaybe
   simp only [x0Ok, Bool.or_eq_true] at hx
   rcases hx with (((hn0 | hn1) | hxa) | hxb) | hdata
@@ -635,4 +635,4 @@ theorem x0Zero_of_ofCheck {c : Circuit babyBear}
     · rw [hslot 4, constSlot_sound (hrules asg halg) (optIs_sound (hdata 4 (by simp)))]
     · rw [hslot 5, constSlot_sound (hrules asg halg) (optIs_sound (hdata 5 (by simp)))]
 
-end ApcOptimizer.OpenVM.OFCheck
+end ApcOptimizer.OpenVM.LegalityCheck

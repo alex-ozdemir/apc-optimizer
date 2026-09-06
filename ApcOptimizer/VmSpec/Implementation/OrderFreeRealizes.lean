@@ -17,13 +17,13 @@ open ApcOptimizer.OpenVM.OrderFree
 variable {p : ℕ}
 
 /-- `openVmHost` realizes the order-free rely, by the same lemmas as `openVmHost_realizes`. -/
-theorem openVmHost_realizesOF (P : OpenVmParams p) (entryPc : Option (ZMod p))
+theorem openVmHost_realizes (P : OpenVmParams p) (entryPc : Option (ZMod p))
     (hOrd : (openVmHost P).ordersRanks (openVmRankModel openVmMemBusId)
       ((openVmBusSemantics p defaultBusMap).toGuestRules
-        (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem)) :
+        (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem) openVmMemAddress) :
     (openVmHost P).realizes
       (openVmBusSemanticsOF p defaultBusMap entryPc) (openVmRankModel openVmMemBusId)
-      (openVmGuestRules defaultBusMap openVmMemBusId) where
+      (openVmGuestRules defaultBusMap openVmMemBusId) openVmMemAddress where
   hmem := openVmDefaultHmem
   legalGuest := openVmHost_legalGuest_unpack P
   sinksAreTables := openVmHost_sinksAreTables P

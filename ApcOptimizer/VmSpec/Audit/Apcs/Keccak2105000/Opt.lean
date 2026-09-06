@@ -165,28 +165,4 @@ theorem optWriteOk {asg : ChipAssignment babyBear}
     asg ⟨"a__0_2", some 91⟩, 0, 0, 0, asg ⟨"from_state__timestamp_0", some 1⟩ + 9])
   exact (openVmPayloadOk_mem_iff _ _ _ _ _ _).mpr ⟨ha02, isByte_zero, isByte_zero, isByte_zero⟩
 
-/-- **A real optimized APC has a step layout.** One arc — `(2105000, t) → (2105016 - 192·cmp,
-    t + 11)` — and the twelve stateful interactions placed at `recipes`, read off the five
-    surviving lt gadgets. Four of its five memory sends echo a receive earlier in the same step;
-    the fifth is the masked value the bitwise table checks.
-
-    This is finding G's memory half, closed. The clause the old `Circuit.advancesClock` failed on
-    every APC — memory strictly inside `(base, base + d)` — is gone; what replaces it, an integer
-    offset in `[-2 ^ 29, 11]` with the sends ordered, this circuit satisfies. -/
-theorem opt_hasStepLayout {maxWindow : ℕ} (hw : 11 < maxWindow) :
-    opt.hasStepLayout apcRules maxWindow openVmTimestampBound :=
-  hasStepLayout_of_checks (by norm_num) hw (fun _ halg => optPinRules_hold _ halg) optBaseLin
-    (fun asg halg => bridgeCheck_sound optBridgeCheck (optPinRules_hold asg halg))
-    optPlaceCheck optOrderCheck optFitsCheck optByteCheck
-    (fun _ halg hacc => optLookbacks halg hacc)
-    (fun _ _ hacc i hwit _ _ => optWriteOk hacc i hwit)
-
-theorem opt_legalGuest {maxWindow maxInteractions : ℕ} (hw : 11 < maxWindow)
-    (hi : 23 ≤ maxInteractions) :
-    opt.legalGuest apcRules maxWindow openVmTimestampBound maxInteractions where
-  sendOnly := opt_legalMultiplicities.1
-  polarity := opt_legalMultiplicities.2
-  stepLayout := opt_hasStepLayout hw
-  size := by simpa [opt] using hi
-
 end ApcOptimizer.OpenVM.Keccak2105000

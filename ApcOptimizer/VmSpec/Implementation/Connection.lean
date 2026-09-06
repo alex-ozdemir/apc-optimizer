@@ -166,9 +166,10 @@ theorem replacesOn_of_isSoundReplacementOf {optimized original : Circuit p} {bs 
     `VmSat` carries no circuit-level property, so the restored run has nothing to re-establish. -/
 theorem vmSoundReplacement_consOn [Fact p.Prime]
     {host : Host p} {bs : BusSemantics p} {rm : RankModel p} {r0 : GuestBusRules p}
+    {memAddress : BusMessage p → List (Option (ZMod p))}
     {P : Circuit p → ChipAssignment p → Prop}
     {c c' : Circuit p} {R : Guest p}
-    (hHost : host.realizes bs rm r0)
+    (hHost : host.realizes bs rm r0 memAddress)
     (hP : host.forcesOn P)
     (hLegal : ∀ d ∈ c' :: R, host.legalGuest d)
     (hSound : c'.replacesOn c bs (P c')) :
@@ -264,8 +265,9 @@ theorem vmSoundReplacement_consOn [Fact p.Prime]
     lists mix chips from each, and `Host.forcesAccepts` applies to a whole list. -/
 theorem vmSoundReplacement_appendOn [Fact p.Prime]
     {host : Host p} {bs : BusSemantics p} {rm : RankModel p} {r0 : GuestBusRules p}
+    {memAddress : BusMessage p → List (Option (ZMod p))}
     {P : Circuit p → ChipAssignment p → Prop}
-    (hHost : host.realizes bs rm r0) (hP : host.forcesOn P)
+    (hHost : host.realizes bs rm r0 memAddress) (hP : host.forcesOn P)
     {T T' : Guest p}
     (hSound : List.Forall₂ (fun c c' => c'.replacesOn c bs (P c')) T T') :
     host.legalGuests (T ++ T') →
@@ -316,9 +318,10 @@ theorem vmSoundReplacement_appendOn [Fact p.Prime]
     `Circuit.statelessSendOnly` outright. -/
 theorem vmSoundReplacement_of_forall₂On [Fact p.Prime]
     {host : Host p} {bs : BusSemantics p} {rm : RankModel p} {r0 : GuestBusRules p}
+    {memAddress : BusMessage p → List (Option (ZMod p))}
     {P : Circuit p → ChipAssignment p → Prop}
     {G G' : Guest p}
-    (hHost : host.realizes bs rm r0) (hP : host.forcesOn P)
+    (hHost : host.realizes bs rm r0 memAddress) (hP : host.forcesOn P)
     (hLegal : host.legalGuests (G ++ G'))
     (hSound : List.Forall₂ (fun c c' => c'.replacesOn c bs (P c')) G G') :
     VmSoundReplacement host G G' := by
@@ -327,8 +330,9 @@ theorem vmSoundReplacement_of_forall₂On [Fact p.Prime]
 /-- **The soundness half of the VM-level connection**, at the unfiltered instance. -/
 theorem vmSoundReplacement_of_forall₂ [Fact p.Prime]
     {host : Host p} {bs : BusSemantics p} {rm : RankModel p} {r0 : GuestBusRules p}
+    {memAddress : BusMessage p → List (Option (ZMod p))}
     {G G' : Guest p}
-    (hHost : host.realizes bs rm r0)
+    (hHost : host.realizes bs rm r0 memAddress)
     (hLegal : host.legalGuests (G ++ G'))
     (hSound : List.Forall₂ (fun c c' => c'.isSoundReplacementOf c bs) G G') :
     VmSoundReplacement host G G' :=
@@ -380,8 +384,9 @@ theorem replacesOn_of_isCompleteReplacementOf {optimized original : Circuit p}
     assumption on input circuits. -/
 theorem vmCompleteReplacement_of_forall₂ [Fact p.Prime]
     {host : Host p} {bs : BusSemantics p} {rm : RankModel p} {r0 : GuestBusRules p}
+    {memAddress : BusMessage p → List (Option (ZMod p))}
     {G G' : Guest p}
-    (hHost : host.realizes bs rm r0)
+    (hHost : host.realizes bs rm r0 memAddress)
     (hAdm : host.forcesAdmissible bs)
     (hLegal : host.legalGuests (G ++ G'))
     (hComplete : List.Forall₂ (fun c c' => (∀ v ∈ Circuit.vars c, v.powdrId?.isSome) ∧

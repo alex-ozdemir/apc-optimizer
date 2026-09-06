@@ -154,24 +154,4 @@ theorem optWriteOk {asg : ChipAssignment babyBear}
     asg ⟨"a__3_0", some 22⟩, asg ⟨"from_state__timestamp_0", some 1⟩ + 2])
   exact (openVmPayloadOk_mem_iff _ _ _ _ _ _).mpr ⟨ha0, ha1, ha2, ha3⟩
 
-/-- **A real optimized APC has a step layout.** One arc — `(0, t) → (4, t + 3)` — and the six
-    stateful interactions placed at `recipes`, read off the three surviving lt gadgets. Two of its
-    memory sends echo the read that preceded them; the third is the `xor` the bitwise table
-    computes. -/
-theorem opt_hasStepLayout {maxWindow : ℕ} (hw : 3 < maxWindow) :
-    opt.hasStepLayout apcRules maxWindow openVmTimestampBound :=
-  hasStepLayout_of_checks (by norm_num) hw (fun _ halg => optPinRules_hold _ halg) optBaseLin
-    (fun asg halg => bridgeCheck_sound optBridgeCheck (optPinRules_hold asg halg))
-    optPlaceCheck optOrderCheck optFitsCheck optByteCheck
-    (fun _ halg hacc => optLookbacks halg hacc)
-    (fun _ _ hacc i hwit _ _ => optWriteOk hacc i hwit)
-
-theorem opt_legalGuest {maxWindow maxInteractions : ℕ} (hw : 3 < maxWindow)
-    (hi : 18 ≤ maxInteractions) :
-    opt.legalGuest apcRules maxWindow openVmTimestampBound maxInteractions where
-  sendOnly := opt_legalMultiplicities.1
-  polarity := opt_legalMultiplicities.2
-  stepLayout := opt_hasStepLayout hw
-  size := by simpa [opt] using hi
-
 end ApcOptimizer.OpenVM.SingleXor

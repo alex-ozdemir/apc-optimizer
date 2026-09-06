@@ -585,17 +585,18 @@ theorem openVmHost_legalGuest_unpack (P : OpenVmParams p) (c : Circuit p) :
     (openVmHost P).legalGuest c →
       c.legalGuest ((openVmBusSemantics p defaultBusMap).toGuestRules
           (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem)
+        openVmMemAddress
         (openVmHost P).maxWindow (openVmHost P).maxLookback (openVmHost P).maxInteractions :=
-  fun h => openVmGuestRules_eq defaultBusMap openVmMemBusId ▸ h.toLegalGuest
+  fun h => openVmGuestRules_eq defaultBusMap openVmMemBusId ▸ h
 
 /-- The temporal contract, which the rank-ordering argument consumes — a field projection now,
     not a separate conjunct. -/
 theorem openVmHost_stepLayout_unpack
     (P : OpenVmParams p) (c : Circuit p) :
     (openVmHost P).legalGuest c →
-      Circuit.hasStepLayout c (openVmGuestRules defaultBusMap openVmMemBusId) P.maxWindow
-        openVmTimestampBound :=
-  fun h => h.stepLayout.toHasStepLayout
+      Circuit.hasStepLayout c (openVmGuestRules defaultBusMap openVmMemBusId) openVmMemAddress
+        P.maxWindow openVmTimestampBound :=
+  fun h => h.stepLayout
 
 /-- **`Host.forcesAccepts` for a concrete OpenVM host**, with no hypotheses: in any satisfying
     OpenVM run within the trace budget, every guest instance's assignment is
@@ -603,7 +604,7 @@ theorem openVmHost_stepLayout_unpack
 theorem openVmHost_forcesAccepts [Fact p.Prime] (P : OpenVmParams p)
     (hOrd : (openVmHost P).ordersRanks (openVmRankModel openVmMemBusId)
       ((openVmBusSemantics p defaultBusMap).toGuestRules
-        (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem)) :
+        (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem) openVmMemAddress) :
     (openVmHost P).forcesAccepts
       (openVmBusSemantics p defaultBusMap) :=
   forcesAccepts_of_hostSound (openVmHost_legalGuest_unpack P)
@@ -614,26 +615,5 @@ theorem openVmHost_forcesAccepts [Fact p.Prime] (P : OpenVmParams p)
     (openVmBusSemantics_statefulAcceptsOfPayloadOk
       (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem)
     hOrd
-
-/-- **`openVmHost` realizes OpenVM's bus semantics** — unconditionally. This is the whole VM-side
-    obligation of `vmSoundReplacement_of_forall₂`, discharged for a concrete host. -/
-theorem openVmHost_realizes (P : OpenVmParams p)
-    (hOrd : (openVmHost P).ordersRanks (openVmRankModel openVmMemBusId)
-      ((openVmBusSemantics p defaultBusMap).toGuestRules
-        (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem)) :
-    (openVmHost P).realizes
-      (openVmBusSemantics p defaultBusMap) (openVmRankModel openVmMemBusId)
-      (openVmGuestRules defaultBusMap openVmMemBusId) where
-  hmem := openVmDefaultHmem
-  legalGuest := openVmHost_legalGuest_unpack P
-  sinksAreTables := openVmHost_sinksAreTables P
-  statefulChipsMaintain := ⟨openVmFinalizeIdx P,
-    openVmHost_finalize_exempt P,
-    openVmHost_statefulChipsMaintain P⟩
-  statefulAcceptsOfPayloadOk :=
-    openVmBusSemantics_statefulAcceptsOfPayloadOk
-      (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem
-  absorbsStateless := openVmHost_absorbsStateless P
-  ordersRanks := hOrd
 
 end ApcOptimizer.OpenVM
