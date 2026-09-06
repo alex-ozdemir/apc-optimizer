@@ -101,8 +101,9 @@ residual case on a pass's concrete output instead of proving it in general.
 
 `vmCompleteReplacement_of_forall₂` (`Implementation/Connection.lean`) derives
 `VmCompleteReplacement` for a whole VM, and `openVm_vmCompleteReplacement` /
-`openVm_vmEquivalent` (`Theorems.lean`) are its OpenVM instances. It rests on **one** assumption
-beyond soundness's own, `Host.forcesAdmissible`, and on nothing else.
+`openVm_vmEquivalent` (`Theorems.lean`) are its OpenVM instances. They assume exactly what
+soundness assumes — legality of the chips, plus the per-chip replacement facts — and nothing about
+the machine.
 
 There is no second induction. `VmCompleteReplacement host G G'` *is*
 `VmSoundReplacement host G' G` — the same proposition with the lists swapped — so the existing
@@ -121,7 +122,7 @@ lifting runs unchanged, once two things are dealt with:
 The existential the swapped lifting needs is supplied by witness generation itself
 (`witgenTotal`, `replacesOn_of_isCompleteReplacementOf`).
 
-### The one remaining obligation
+### The obligation that used to be open
 
 `Host.forcesAdmissible host bs` — the VM only realizes `Circuit.admissible` guest assignments.
 It is stated in the shape of `Host.ordersRanks`: quantified over whatever legal chips the host runs
@@ -133,20 +134,26 @@ and a chip's own constraints do not force it: `Apcs/TwoLoads/` has satisfying, b
 assignments that violate it whenever its two computed pointers coincide. What makes it true of a
 *run* is global.
 
-What it should be derived from, and why that is now the tractable shape:
+`openVmHost_forcesAdmissible` (`Implementation/MemChain.lean`) now proves it for `openVmHost`
+outright, so completeness carries no VM-level hypothesis. What it rests on:
 
 * **bus balance** — already a conjunct of `VmSat` (`balances`);
-* **window atomicity** — per address, at most one record enters an instance's window from outside,
-  which is what the arc/disjoint-window machinery of `Chain.lean`/`OpenVmChain.lean`
-  (`memMsg_arc_unique`, `openVmHost_receivesArePast`) was built to establish.
+* **window atomicity** — distinct bridge arcs own disjoint stretches of the clock
+  (`bridge_windows_disjoint_arc`, `Implementation/ChainDisjoint.lean`), which bounds the records
+  entering one instance's window from outside;
+* **the guest's own access discipline** — `Circuit.legalGuestOF` (`VmSpec/LegalOF.lean`), audited
+  per APC in `Audit/OF/`;
+* **three facts about the host** — the initial image is a function of the address, an input-chip
+  instance reads only records set before its own writes, and only a memory `getPrevious` may reach
+  backwards. `Audit/AdmissibleGap.lean`, `Audit/InputTimeGap.lean` and `Audit/BridgeOffsetGap.lean`
+  carry the run each of those excludes.
 
-Nothing in the completeness path looks inside `Circuit.admissible`, so all of the above is
-**unchanged by a change of memory discipline**. Adopting the order-free multiset discipline of
-`1arie1:exp/order-free-admissibility` is a drop-in: it replaces what `forcesAdmissible` must prove
-without touching a line of the lifting. It is also the better target — its statement is exactly
-"balance plus window atomicity" in multiset form, where the positional discipline additionally
-demands a *pairing* between a specific send and a specific receive, and carries a list-order
-assumption the VM level would have to bridge to `StepLayout`'s offsets.
+It is proved against the **order-free** `openVmBusSemanticsOF`, not the positional
+`openVmBusSemantics`. Nothing in the completeness path looks inside `Circuit.admissible`, so that
+change of memory discipline was a drop-in: it replaced what `forcesAdmissible` must prove without
+touching a line of the lifting. It is also the only version that is true of a VM — the positional
+discipline reads list order as time and demands a *pairing* between a specific send and a specific
+receive, which `AdmissibleGap.lean`'s `badChip2` violates while doing nothing wrong.
 
 ## What is proven against real APCs (`Audit/Apcs/`)
 

@@ -108,7 +108,7 @@ theorem openVmHost_sinksAreTables (P : OpenVmParams p) :
     revert hacc
     rcases ml with _ | ⟨x, _ | ⟨y, _ | ⟨z, rest⟩⟩⟩ <;> exact id
   -- Memory init/finalize pin the bus id directly; the message would have to be stateful.
-  · have hbus := (hleg (mb, ml) hcm).1
+  · have hbus := (hleg.1 (mb, ml) hcm).1
     subst hbus
     simp [openVmBusSemantics, defaultBusMap, OpenVmBusType.isStateful] at hm
   · have hbus := (hleg (mb, ml) hcm).1
@@ -309,7 +309,7 @@ theorem openVmHost_statefulChipsMaintain (P : OpenVmParams p) :
     subst hbus
     simp [openVmBusSemantics, defaultBusMap, OpenVmBusType.isStateful] at hst
   -- Memory initialization: byte-valued by the chip's own predicate.
-  · obtain ⟨hbus, -, f, hf, hbytes, -, -⟩ := hleg (mb, ml) hcm
+  · obtain ⟨hbus, -, f, hf, hbytes, -, -⟩ := hleg.1 (mb, ml) hcm
     subst hbus
     refine memory_maintains (fun f' hf' => ?_)
     rw [hf] at hf'
@@ -586,7 +586,7 @@ theorem openVmHost_legalGuest_unpack (P : OpenVmParams p) (c : Circuit p) :
       c.legalGuest ((openVmBusSemantics p defaultBusMap).toGuestRules
           (openVmGuestRules defaultBusMap openVmMemBusId) openVmDefaultHmem)
         (openVmHost P).maxWindow (openVmHost P).maxLookback (openVmHost P).maxInteractions :=
-  fun h => openVmGuestRules_eq defaultBusMap openVmMemBusId ▸ h
+  fun h => openVmGuestRules_eq defaultBusMap openVmMemBusId ▸ h.toLegalGuest
 
 /-- The temporal contract, which the rank-ordering argument consumes — a field projection now,
     not a separate conjunct. -/
@@ -595,7 +595,7 @@ theorem openVmHost_stepLayout_unpack
     (openVmHost P).legalGuest c →
       Circuit.hasStepLayout c (openVmGuestRules defaultBusMap openVmMemBusId) P.maxWindow
         openVmTimestampBound :=
-  fun h => h.stepLayout
+  fun h => h.stepLayout.toHasStepLayout
 
 /-- **`Host.forcesAccepts` for a concrete OpenVM host**, with no hypotheses: in any satisfying
     OpenVM run within the trace budget, every guest instance's assignment is

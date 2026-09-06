@@ -32,7 +32,10 @@ import ApcOptimizer.VmSpec.Implementation.Validation
 
     * `VmSpec/Theorems.lean` — the VM-level correctness theorems. Statements only: each proof is a
       one-line application of an `Implementation/` lemma, mirroring `ApcOptimizer/Optimizer.lean`.
-      Read this to learn what has been established.
+      Read this to learn what has been established. Soundness needs only legality; completeness
+      needs the rely to be forced as well, and that is a theorem
+      (`openVmHost_forcesAdmissible`) rather than a hypothesis, so its statement assumes nothing
+      about the machine either.
 
     ### Audited — the statement
 
@@ -102,6 +105,21 @@ import ApcOptimizer.VmSpec.Implementation.Validation
       is a statement about the optimizer, not about the block. Three APCs are carried through all
       three stages; two more (`AndBranch`, `LoadBranch`) come from the shipped benchmark corpus,
       which dumps only the pre-gate stage, and are audited there.
+    * `Audit/OF/` — the same corpus measured against `Circuit.legalGuestOF`, the order-free
+      strengthening VM-level completeness needs. `OF/Check.lean` is a decidable checker for its
+      memory-access clauses in the idiom of `Audit/PlaceCheck.lean`, and `OF/All.lean` is the
+      index: every APC passes, each by a single kernel `decide` over a pairing list. Three of the
+      clauses were shaped by what the corpus refuted — see that file.
+    * `Audit/AdmissibleGap.lean`, `Audit/BridgeOffsetGap.lean`, `Audit/InputTimeGap.lean` — the
+      audit-surface gaps the VM-level completeness argument has turned up, each with the chip or
+      witness that exhibits it and the clause that closes it. `AdmissibleGap`: an ordinary write
+      listed send-first, and an initial image holding two records for one cell — closed by the
+      order-free rely and `memoryInitHostChipOF`'s injectivity. `BridgeOffsetGap`: a cancelling
+      pair of bridge messages at a wrapped timestamp, satisfying the original `StepLayout` in
+      full — closed by `StepLayoutOF.negOffsetOnlyMemRecv`. `InputTimeGap`: `InputRead` never
+      stated §4.6.1's `t_prev < t` for its own two memory accesses, so a `HINT_STOREW` could read
+      back a record set after its own write — closed by `InputRead.ptrOffsetOk`/`wordOffsetOk`,
+      whose audit that file is. Each records the run or chip that would otherwise slip through.
     * `Audit/SoundnessGivesLegality.lean` — how much of `Circuit.legalGuest` a chip-level soundness
       proof already gives for free, and where the residue is real: legality of the optimizer's
       output cannot be derived from soundness alone (a per-chip `Circuit.isSoundReplacementOf`
@@ -131,5 +149,20 @@ import ApcOptimizer.VmSpec.Implementation.Validation
       execution-bridge traffic into an ordering, with no mention of a circuit or a bus.
     * `Implementation/OpenVmChain.lean` — that argument applied to `openVmHost`, giving
       `Host.pinsRanks`: one range-checked boundary timestamp bounds every timestamp in the run.
+    * `Implementation/ChainDisjoint.lean` — the same combinatorics strengthened to *disjointness*:
+      distinct bridge arcs own disjoint stretches of the clock. `Chain.no_balanced_subset` is its
+      core, and it needs no cycle argument — a balanced arc subset missing the connector telescopes
+      its own time to zero while being an honest natural below `p`.
+    * `Implementation/OrderFreeRealizes.lean` — `Host.realizes` transported to the order-free
+      rely, which is free: `realizes` never reads `BusSemantics.admissible`, the only field that
+      differs.
+    * `Implementation/HostCounts.lean`, `Implementation/Excess.lean` — the host's exact signed
+      contribution at a message, and `excessAt`'s cardinality bound reduced to a list count.
+    * `Implementation/Forces.lean` — placement and record matching: every instance on the clock,
+      every memory receive matched to a producer, and TS_BOUND, `x0ReturnsZero` and the execution
+      bridge's own admissibility discharged.
+    * `Implementation/MemChain.lean` — send- and receive-uniqueness for a whole run, the
+      per-address counting that bounds the records entering one instance, and
+      `openVmHost_forcesAdmissible`: the completeness theorem's last assumption, discharged.
     * `Implementation/Validation.lean` — sanity lemmas about the spec (that the guest list behaves
       as a set, that `VmSoundReplacement` is a preorder). -/
